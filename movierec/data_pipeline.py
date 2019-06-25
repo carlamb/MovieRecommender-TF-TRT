@@ -62,6 +62,7 @@ def download_movielens(dataset_name, output_dir):
                          .format(dataset_name, ', '.join(MOVIELENS_DATASET_NAMES)))
 
     with tempfile.TemporaryDirectory() as temp_dir:  # automatically cleaned up after this context
+        logging.info('Downloading Movielens {}'.format(dataset_name))
         # download dataset zip file into temporary folder
         dataset_url = MOVIELENS_URL_FORMAT.format(dataset_name)
         dataset_file_name = os.path.join(temp_dir, dataset_name + ZIP_EXTENSION)
@@ -94,7 +95,8 @@ def load_ratings_train_test_sets(dataset_name, data_dir, download=True):
     dataset_name : str
         Movielens dataset name. Must be one of MOVIELENS_DATASET_NAMES.
     data_dir : str or os.path
-        Dataset directory to read from. The file to read from the directory will be obtained from RATINGS_FILE_NAME.
+        Dataset directory to read from. The file to read from the directory will be:
+        data_dir/dataset_name/RATINGS_FILE_NAME[dataset_name].
     download : boolean
         Download and extract Movielens dataset if it does not exist in the 'data_dir'. Default=True.
 
@@ -109,7 +111,7 @@ def load_ratings_train_test_sets(dataset_name, data_dir, download=True):
                          .format(dataset_name, ', '.join(MOVIELENS_DATASET_NAMES)))
 
     # file to load: download or raise error if it does not exist
-    ratings_file_path = os.path.join(data_dir, RATINGS_FILE_NAME[dataset_name])
+    ratings_file_path = os.path.join(data_dir, dataset_name, RATINGS_FILE_NAME[dataset_name])
     if not os.path.exists(ratings_file_path):
         if not download:
             raise FileNotFoundError('{} not found. Download the dataset first or set param download=True.'
