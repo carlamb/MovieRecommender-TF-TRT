@@ -88,7 +88,7 @@ def download_movielens(dataset_name, output_dir):
 def load_ratings_train_test_sets(dataset_name, data_dir, download=True):
     """
     Load Movielens ratings dataset from a file. Optionally download it first if it does not exist.
-    Split the dataset in train and test sets.
+    Split the dataset in train, validation and test sets.
 
     Parameters
     ----------
@@ -123,6 +123,7 @@ def load_ratings_train_test_sets(dataset_name, data_dir, download=True):
                                         .format(ratings_file_path))
 
     # Load dataset in a dataframe
+    # Since movielens datasets are relatively small, load and manage all in Pandas. Otherwise, this could be optimized.
     ratings_df = pd.read_csv(filepath_or_buffer=ratings_file_path,
                              sep=SEPARATOR[dataset_name],
                              header=0 if HAS_HEADER[dataset_name] else None,
@@ -136,13 +137,16 @@ def load_ratings_train_test_sets(dataset_name, data_dir, download=True):
     # TODO: log a small summary, check for duplicates?
 
     # TODO: implement other splitting options. Add more params for splits
-    # split in train and test by taking the out the first rating of every user as test, the rest is train
+    # split in train, validation and test by taking the out the first rating of every user as test, the rest is train
+    # (every user in movielens has at least 20 items rated)
     grouped_by_user = ratings_df.groupby(COL_USER_ID, group_keys=False)
-    test_ratings_df = grouped_by_user.apply(lambda x: x.head(1))
-    train_ratings_df = grouped_by_user.apply(lambda x: x.iloc[1:])
+    test_ratings_df = grouped_by_user.apply(lambda x: x.iloc[[-1]])
+    validation_df = grouped_by_user.apply(lambda x: x.iloc[[-2]])
+    train_ratings_df = grouped_by_user.apply(lambda x: x.iloc[:-2])
 
     # reset the indexes as they are kept from the original dataframe
     test_ratings_df = test_ratings_df.reset_index(drop=True)
+    validation_df = validation_df.reset_index(drop=True)
     train_ratings_df = train_ratings_df.reset_index(drop=True)
 
-    return train_ratings_df, test_ratings_df
+    return train_ratings_df, validation_df, test_ratings_df
