@@ -1,8 +1,9 @@
-from movierec.data_pipeline import load_ratings_train_test_sets
+from movierec.data_pipeline import load_ratings_train_test_sets, MovieLensDataGenerator
 
 from unittest import TestCase
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 
 
@@ -57,7 +58,50 @@ class TestDataPipeline(TestCase):
         mock_download_movielens.assert_called_with('ml-100k', 'testPath')
         mock_read_csv.assert_called_once()
 
-        expected_train = pd.DataFrame({'userId': pd.Series([1, 2, 2]),
-                                      'itemId': pd.Series([200, 300, 100]),
-                                       'rating': pd.Series([5., 3., 2])})
+    def test_generator_get_item(self):
+        # mock data with 2 users and 5 items
+        data = pd.DataFrame({'userId': pd.Series([0, 0, 0, 1]),
+                             'itemId': pd.Series([0, 1, 2, 3]),
+                             'rating': pd.Series([5., 5., 4., 3.])})
+        extra_data = pd.DataFrame({'userId': pd.Series([0, 1]),
+                                   'itemId': pd.Series([4, 4]),
+                                   'rating': pd.Series([3., 2.])})
 
+        test_class = MovieLensDataGenerator(data, batch_size=6, negatives_per_positive=2,
+                                            num_items=5, extra_data_df=extra_data, shuffle=False)
+
+        # test first batch:
+        # size:6, positives:2, negatives:4 (2 negatives_per_positive *2 positives)
+        for _ in range(10):  # test 5 times because there is random component
+            batch_x, batch_y = test_class[0]
+            self.assertEqual(len(batch_x), 2)
+            x_users = batch_x[0]
+            x_items = batch_x[1]
+
+            # First batch has only user: 0
+            np.testing.assert_equal(x_users, np.zeros(6, dtype=np.int))
+            # Items for user 0: [0,1,2] in data, and [4] in extra data
+            # There are 5 items, so the only option in this batch is that all negative items are: 3
+            np.testing.assert_equal(x_items, np.array([0, 1, 3, 3, 3, 3]))
+            np.testing.assert_equal(batch_y, np.array([1, 1, 0, 0, 0, 0]))
+
+        # test second batch:
+        # size:6, positives:2, negatives:4 (2 negatives_per_positive *2 positives)
+        for _ in range(10):  # test 5 times because there is random component
+            batch_x, batch_y = test_class[1]
+            self.assertEqual(len(batch_x), 2)
+            x_users = batch_x[0]
+            x_items = batch_x[1]
+
+            # Second batch has users: 0, 1
+            np.testing.assert_equal(x_users, np.array([0, 1, 0, 0, 1, 1]))
+
+            # assert positives and negatives of user 0 (only '3' is possible for user 0)
+            np.testing.assert_equal(x_items[:4], np.array([2, 3, 3, 3]))
+            np.testing.assert_equal(batch_y[:4], np.array([1, 1, 0, 0]))
+
+            # assertions for negatives of user 1. Only items [0, 1, 2] are possible
+            # and there must be no repeated items (2 chosen among 3 options, repetitions only happen if no
+            # other option is possible)
+            self.assertEqual(len(np.setdiff1d(np.array([0, 1, 2]), x_items[4:])), 1)
+            np.testing.assert_equal(batch_y[4:], np.array([0, 0]))
