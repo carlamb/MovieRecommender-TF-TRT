@@ -57,17 +57,17 @@ COL_LABEL = 'label'
 
 class MovieLensDataGenerator(Sequence):
 
-    def __init__(self, data_df, batch_size, negatives_per_positive, num_items, extra_data_df=None, shuffle=True):
+    def __init__(self, dataset_name, data_df, batch_size, negatives_per_positive, extra_data_df=None, shuffle=True):
         """
-
         Create a generator that provides batches of Movielens data for training or testing purposes.
         Every batch contains positive and negative examples. The positive examples are taken from `data_df`.
         The negative examples are generated for every batch by picking a random list of items per user that are not
         present in either `data_df` or `extra_data_df`.
 
-
         Parameters
         ----------
+        dataset_name : str
+            Movielens dataset name. Must be one of MOVIELENS_DATASET_NAMES.
         data_df : `Dataframe`
             Data to build the generator from. It is a Movielens dataset containing users, items and ratings.
         batch_size : int
@@ -75,8 +75,6 @@ class MovieLensDataGenerator(Sequence):
         negatives_per_positive : int
             Number of negatives examples to generate for every positive example in a batch. Batch size must be divisible
             by (negatives_per_positive + 1).
-        num_items : int
-            Number of items.
         extra_data_df : `DataFrame`
             Optional dataframe to be used when computing negatives. Negative items for a user are those that do not
             exist for that user in 'data_df' or 'extra_data_df'. The data of this is not directly provided by the
@@ -87,7 +85,9 @@ class MovieLensDataGenerator(Sequence):
             but negatives will be different).
         """
 
-        self.num_items = num_items
+        self._dataset_name = dataset_name
+        self._num_users = NUM_USERS[dataset_name]
+        self._num_items = NUM_ITEMS[dataset_name]
         self.data = data_df
         self.extra_data = extra_data_df
         self.batch_size = batch_size
@@ -98,6 +98,22 @@ class MovieLensDataGenerator(Sequence):
         self.indexes = np.arange(len(self.data))
 
         self.on_epoch_end()
+        logging.info('Created generator for {}. Num users={}, num items={}, num_batches={}, batch size={}, '
+                     'positives per batch={}, negatives per batch={}'
+                     .format(dataset_name, self._num_users, self._num_items, len(self), batch_size,
+                             self.num_positives_per_batch, self.num_negatives_per_batch))
+
+    @property
+    def num_users(self):
+        return self._num_users
+
+    @property
+    def num_items(self):
+        return self._num_items
+
+    @property
+    def dataset_name(self):
+        return self._dataset_name
 
     def __len__(self):
         """

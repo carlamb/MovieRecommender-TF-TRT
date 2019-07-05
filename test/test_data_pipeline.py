@@ -1,7 +1,7 @@
 from movierec.data_pipeline import load_ratings_train_test_sets, MovieLensDataGenerator
 
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 
 import numpy as np
 import pandas as pd
@@ -58,8 +58,10 @@ class TestDataPipeline(TestCase):
         mock_download_movielens.assert_called_with('ml-100k', 'testPath')
         mock_read_csv.assert_called_once()
 
-    def test_generator_get_item(self):
+    @patch('movierec.data_pipeline.MovieLensDataGenerator.num_items', new_callable=PropertyMock)
+    def test_generator_get_item(self, mock_num_items):
         # mock data with 2 users and 5 items
+        mock_num_items.return_value = 5
         data = pd.DataFrame({'userId': pd.Series([0, 0, 0, 1]),
                              'itemId': pd.Series([0, 1, 2, 3]),
                              'rating': pd.Series([5., 5., 4., 3.])})
@@ -67,8 +69,8 @@ class TestDataPipeline(TestCase):
                                    'itemId': pd.Series([4, 4]),
                                    'rating': pd.Series([3., 2.])})
 
-        test_class = MovieLensDataGenerator(data, batch_size=6, negatives_per_positive=2,
-                                            num_items=5, extra_data_df=extra_data, shuffle=False)
+        test_class = MovieLensDataGenerator('ml-100k', data, batch_size=6, negatives_per_positive=2,
+                                            extra_data_df=extra_data, shuffle=False)
 
         # test first batch:
         # size:6, positives:2, negatives:4 (2 negatives_per_positive *2 positives)
