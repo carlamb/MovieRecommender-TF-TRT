@@ -26,16 +26,17 @@ class TestDataPipeline(TestCase):
                                                    'rating': pd.Series([5., 5., 4., 3., 2., 4., 5.])})
         train, validation, test = load_ratings_train_test_sets('ml-100k', 'ml-100k')
 
-        expected_train = pd.DataFrame({'userId': pd.Series([1, 1, 2]),
-                                       'itemId': pd.Series([111, 123, 101]),
+        # expected values (0-indexed)
+        expected_train = pd.DataFrame({'userId': pd.Series([0, 0, 1]),
+                                       'itemId': pd.Series([110, 122, 100]),
                                        'rating': pd.Series([5., 5., 2])})
 
-        expected_validation = pd.DataFrame({'userId': pd.Series([1, 2]),
-                                            'itemId': pd.Series([200, 222]),
+        expected_validation = pd.DataFrame({'userId': pd.Series([0, 1]),
+                                            'itemId': pd.Series([199, 221]),
                                             'rating': pd.Series([4., 4.])})
 
-        expected_test = pd.DataFrame({'userId': pd.Series([1, 2]),
-                                      'itemId': pd.Series([333, 300]),
+        expected_test = pd.DataFrame({'userId': pd.Series([0, 1]),
+                                      'itemId': pd.Series([332, 299]),
                                       'rating': pd.Series([3., 5.])})
         pd.testing.assert_frame_equal(train, expected_train)
         pd.testing.assert_frame_equal(validation, expected_validation)
@@ -107,3 +108,15 @@ class TestDataPipeline(TestCase):
             # other option is possible)
             self.assertEqual(len(np.setdiff1d(np.array([0, 1, 2]), x_items[4:])), 1)
             np.testing.assert_equal(batch_y[4:], np.array([0, 0]))
+
+    def test_generator_value_errors(self):
+        data = pd.DataFrame({'userId': pd.Series([0, 0, 0, 1]),
+                             'itemId': pd.Series([0, 1, 2, 3]),
+                             'rating': pd.Series([5., 5., 4., 3.])})
+
+        with self.assertRaisesRegex(ValueError, 'Invalid dataset name'):
+            MovieLensDataGenerator('wrong_name', data, batch_size=6, negatives_per_positive=2)
+        with self.assertRaisesRegex(ValueError, 'negatives_per_positive must be > 0'):
+            MovieLensDataGenerator('ml-100k', data, batch_size=6, negatives_per_positive=0)
+        with self.assertRaisesRegex(ValueError, 'Batch size must be divisible by'):
+            MovieLensDataGenerator('ml-100k', data, batch_size=10, negatives_per_positive=6)

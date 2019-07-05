@@ -85,6 +85,21 @@ class MovieLensDataGenerator(Sequence):
             but negatives will be different).
         """
 
+        if dataset_name not in MOVIELENS_DATASET_NAMES:
+            raise ValueError('Invalid dataset name {}. Must be one of {}'
+                             .format(dataset_name, ', '.join(MOVIELENS_DATASET_NAMES)))
+
+        if negatives_per_positive <= 0:
+            raise ValueError("negatives_per_positive must be > 0, found {}".format(negatives_per_positive))
+
+        if batch_size < 0 or batch_size > len(data_df):
+            raise ValueError("Batch size must be between 0 and {} (len(data)). Found batch_size={}"
+                             .format(len(data_df), batch_size))
+
+        if batch_size % (negatives_per_positive + 1):
+            raise ValueError("Batch size must be divisible by (negatives_per_positive + 1). Found: batch_size={}, "
+                             "negatives_per_positive={}".format(batch_size, negatives_per_positive))
+
         self._dataset_name = dataset_name
         self._num_users = NUM_USERS[dataset_name]
         self._num_items = NUM_ITEMS[dataset_name]
@@ -273,6 +288,10 @@ def load_ratings_train_test_sets(dataset_name, data_dir, download=True):
                              usecols=(0, 1, 2),
                              names=(COL_USER_ID, COL_ITEM_ID, COL_RATING),
                              dtype={COL_USER_ID: np.int32, COL_ITEM_ID: np.int32, COL_ITEM_ID: np.float32})
+
+    # Users and ratings are 1-indexed. Make them 0-indexed
+    ratings_df[COL_USER_ID] = ratings_df[COL_USER_ID] - 1
+    ratings_df[COL_ITEM_ID] = ratings_df[COL_ITEM_ID] - 1
 
     # TODO: log a small summary, check for duplicates?
 
