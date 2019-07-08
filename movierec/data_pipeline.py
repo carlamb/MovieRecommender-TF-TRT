@@ -136,9 +136,10 @@ class MovieLensDataGenerator(Sequence):
         """
         return int(np.floor(len(self.indexes) / self.batch_size))
 
-    def _get_random_negatives(self, group):
-        # collect positives from 'data' and 'other_data_split'
-        user = group[COL_USER_ID].iloc[0]
+    def _get_random_negatives_and_positive(self, row):
+        # Given a DataFrame row, generate an array of random negative items and the positive one at the end.
+
+        user = row[COL_USER_ID]
         positives_user = self.data[self.data[COL_USER_ID] == user][COL_ITEM_ID]
         if self.extra_data is not None:
             positives_user = positives_user.append(self.extra_data[self.extra_data[COL_USER_ID] == user][COL_ITEM_ID])
@@ -148,8 +149,8 @@ class MovieLensDataGenerator(Sequence):
 
         # select randomly, without replacement, if possible
         replace = len(possible_negs) < self.negatives_per_positive
-        negative_items = np.random.choice(possible_negs, self.negatives_per_positive * len(group), replace=replace)
-        return pd.DataFrame(negative_items, columns=(COL_ITEM_ID, ))
+        negative_items = np.random.choice(possible_negs, self.negatives_per_positive, replace=replace)
+        return np.append(negative_items, int(row[COL_ITEM_ID]))
 
     def __getitem__(self, idx):
         """
@@ -173,16 +174,18 @@ class MovieLensDataGenerator(Sequence):
 
         # Get indexes of the positive examples for this batch:
         idxs_pos = self.indexes[idx * self.num_positives_per_batch:(idx + 1) * self.num_positives_per_batch]
+
         # Get the positives
         positives = self.data.iloc[idxs_pos]
-        grouped_positives = positives.groupby(COL_USER_ID, group_keys=True)
+        # users are repeated to include negatives
+        x_user = np.repeat(positives[COL_USER_ID], 1 + self.negatives_per_positive)
 
-        # Generate negatives
-        negatives = grouped_positives.apply(self._get_random_negatives).reset_index()
-        x_user = np.concatenate([positives[COL_USER_ID], negatives[COL_USER_ID]])
-        x_item = np.concatenate([positives[COL_ITEM_ID], negatives[COL_ITEM_ID]])
-        y = np.concatenate((np.ones(self.num_positives_per_batch, dtype=np.int),
-                            np.zeros(self.num_negatives_per_batch, dtype=np.int)))
+        # items: for every positive, create array of random negatives and the positive at the end
+        items_with_negatives = positives.apply(self._get_random_negatives_and_positive, axis=1)
+        x_item = np.concatenate(items_with_negatives.values)
+
+        # labels: first negative labels, then one positive (N times)
+        y = np.tile([0] * self.negatives_per_positive + [1], self.num_positives_per_batch)
 
         return [x_user, x_item], y
 

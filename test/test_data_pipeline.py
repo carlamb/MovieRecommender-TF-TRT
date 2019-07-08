@@ -61,21 +61,71 @@ class TestDataPipeline(TestCase):
 
     @patch('movierec.data_pipeline.MovieLensDataGenerator.num_items', new_callable=PropertyMock)
     def test_generator_get_item(self, mock_num_items):
-        # mock data with 2 users and 5 items
+        # mock data with 3 users and 5 items
         mock_num_items.return_value = 5
-        data = pd.DataFrame({'userId': pd.Series([0, 0, 0, 1]),
-                             'itemId': pd.Series([0, 1, 2, 3]),
-                             'rating': pd.Series([5., 5., 4., 3.])})
-        extra_data = pd.DataFrame({'userId': pd.Series([0, 1]),
-                                   'itemId': pd.Series([4, 4]),
-                                   'rating': pd.Series([3., 2.])})
+        data = pd.DataFrame({'userId': pd.Series([0, 2, 0, 1]),
+                             'itemId': pd.Series([0, 0, 2, 3])})
+        extra_data = pd.DataFrame({'userId': pd.Series([0, 0, 1, 2, 2, 2]),
+                                   'itemId': pd.Series([1, 4, 4, 1, 2, 4])})
 
         test_class = MovieLensDataGenerator('ml-100k', data, batch_size=6, negatives_per_positive=2,
                                             extra_data_df=extra_data, shuffle=False)
 
         # test first batch:
         # size:6, positives:2, negatives:4 (2 negatives_per_positive *2 positives)
-        for _ in range(10):  # test 5 times because there is random component
+        for _ in range(10):  # test 10 times because there is a random component
+            batch_x, batch_y = test_class[0]
+            self.assertEqual(len(batch_x), 2)
+            x_users = batch_x[0]
+            x_items = batch_x[1]
+
+            # Second batch has users: 0, 2
+            np.testing.assert_equal(x_users, np.array([0, 0, 0, 2, 2, 2]))
+            # Items for user 0: [0,2] in data, and [1,4] in extra data, user 2: [0] in data, [1,2,4] in extra_data
+            # There are 5 items, so the only option in this batch is that all negative items are: 3
+            np.testing.assert_equal(x_items, np.array([3, 3, 0, 3, 3, 0]))
+            np.testing.assert_equal(batch_y, np.array([0, 0, 1, 0, 0, 1]))
+
+        # test second batch:
+        # size:6, positives:2, negatives:4 (2 negatives_per_positive *2 positives)
+        for _ in range(10):  # test 10 times because there is a random component
+            batch_x, batch_y = test_class[1]
+            self.assertEqual(len(batch_x), 2)
+            x_users = batch_x[0]
+            x_items = batch_x[1]
+
+            # Second batch has users: 0, 1
+            np.testing.assert_equal(x_users, np.array([0, 0, 0, 1, 1, 1]))
+
+            # verify user 0 (only '3' is possible negative)
+            np.testing.assert_equal(x_items[:3], np.array([3, 3, 2]))
+            np.testing.assert_equal(batch_y[:3], np.array([0, 0, 1]))
+
+            # verify user 1. Only items [0, 1, 2] are possible
+            # and there must be no repeated items (2 chosen among 3 options, repetitions only happen if no
+            # other option is possible)
+            self.assertEqual(len(np.setdiff1d(np.array([0, 1, 2]), x_items[3:5])), 1)
+            self.assertEqual(3, x_items[5])
+            np.testing.assert_equal(batch_y[3:], np.array([0, 0, 1]))
+
+    @patch('movierec.data_pipeline.MovieLensDataGenerator.num_items', new_callable=PropertyMock)
+    def test_generator_get_item_duplicated_user_batch(self, mock_num_items):
+        # mock data with 2 users and 6 items
+        mock_num_items.return_value = 6
+        data = pd.DataFrame({'userId': pd.Series([0, 0, 0, 1]),
+                             'itemId': pd.Series([0, 1, 2, 3]),
+                             'rating': pd.Series([5., 5., 4., 3.])})
+
+        test_class = MovieLensDataGenerator('ml-100k', data, batch_size=6, negatives_per_positive=2,
+                                            extra_data_df=None, shuffle=False)
+
+        not_always_equals_in_batch = False
+        not_always_equals_between_runs = False
+        last_run_array = None
+
+        # test first batch:
+        # size:6, positives:2, negatives:4 (2 negatives_per_positive *2 positives)
+        for _ in range(50):  # test 50 times because there is a random component
             batch_x, batch_y = test_class[0]
             self.assertEqual(len(batch_x), 2)
             x_users = batch_x[0]
@@ -83,31 +133,24 @@ class TestDataPipeline(TestCase):
 
             # First batch has only user: 0
             np.testing.assert_equal(x_users, np.zeros(6, dtype=np.int))
-            # Items for user 0: [0,1,2] in data, and [4] in extra data
-            # There are 5 items, so the only option in this batch is that all negative items are: 3
-            np.testing.assert_equal(x_items, np.array([0, 1, 3, 3, 3, 3]))
-            np.testing.assert_equal(batch_y, np.array([1, 1, 0, 0, 0, 0]))
-
-        # test second batch:
-        # size:6, positives:2, negatives:4 (2 negatives_per_positive *2 positives)
-        for _ in range(10):  # test 5 times because there is random component
-            batch_x, batch_y = test_class[1]
-            self.assertEqual(len(batch_x), 2)
-            x_users = batch_x[0]
-            x_items = batch_x[1]
-
-            # Second batch has users: 0, 1
-            np.testing.assert_equal(x_users, np.array([0, 1, 0, 0, 1, 1]))
-
-            # assert positives and negatives of user 0 (only '3' is possible for user 0)
-            np.testing.assert_equal(x_items[:4], np.array([2, 3, 3, 3]))
-            np.testing.assert_equal(batch_y[:4], np.array([1, 1, 0, 0]))
-
-            # assertions for negatives of user 1. Only items [0, 1, 2] are possible
-            # and there must be no repeated items (2 chosen among 3 options, repetitions only happen if no
+            # Items for user 0: [0,1,2]. Possible negatives are [3, 4, 5]
+            # There must be no repeated items (2 chosen among 3 options, repetitions only happen if no
             # other option is possible)
-            self.assertEqual(len(np.setdiff1d(np.array([0, 1, 2]), x_items[4:])), 1)
-            np.testing.assert_equal(batch_y[4:], np.array([0, 0]))
+            self.assertEqual(len(np.setdiff1d(np.array([3, 4, 5]), x_items[:2])), 1)
+            self.assertEqual(len(np.setdiff1d(np.array([3, 4, 5]), x_items[3:6])), 1)
+            np.testing.assert_equal(batch_y, np.array([0, 0, 1, 0, 0, 1]))
+
+            # verify that generated negatives are not always the same
+            if not np.array_equal(x_items[:2], x_items[3:6]):
+                not_always_equals_in_batch = True
+            if last_run_array is not None and not np.array_equal(last_run_array, x_items[:2]):
+                not_always_equals_between_runs = True
+            last_run_array = x_items[:2]
+
+        self.assertTrue(not_always_equals_between_runs,
+                        "Randomly generated negatives should not always be equals between runs")
+        self.assertTrue(not_always_equals_in_batch,
+                        "Randomly generated negatives should not always be equals in the same batch")
 
     def test_generator_value_errors(self):
         data = pd.DataFrame({'userId': pd.Series([0, 0, 0, 1]),
