@@ -1,5 +1,6 @@
-from movierec.model import build_mlp_model, compile_model
-
+from movierec.model import build_mlp_model, compile_model, hit_rate
+import numpy as np
+import tensorflow as tf
 from unittest import TestCase
 
 TEST_PARAMS = {
@@ -47,3 +48,36 @@ class TestModel(TestCase):
 
     def test_not_implemented_optimizer(self):
         self.assertRaises(NotImplementedError, compile_model, "model", {"optimizer": "Other"})
+
+    def _eval_tensor(self, tensor):
+        sess = tf.Session()
+        with sess.as_default():
+            init = tf.global_variables_initializer()
+            sess.run(init)
+            return tensor.eval()
+
+    def test_hit_rate(self):
+        # last elem in each row is expected label (should be max in pred)
+        y_true = np.array([[0, 0, 0, 1],
+                           [0, 0, 0, 1]])
+        y_pred = np.array([[0.1, 0.2, 0.9, 0.5],
+                           [0.9, 0.8, 0.7, 0.6]], dtype=np.float32)
+        num_negs_per_pos = 3
+
+        # for top 0, top 1: hr=0
+        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=0))
+        self.assertEqual(hr, 0.0)
+        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=1))
+        self.assertEqual(hr, 0.0)
+
+        # top 2, top 3: first row is hit, second is not
+        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=2))
+        self.assertEqual(hr, 0.5)
+        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=3))
+        self.assertEqual(hr, 0.5)
+
+        # k > 4: all in top
+        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=4))
+        self.assertEqual(hr, 1.0)
+        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=5))
+        self.assertEqual(hr, 1.0)

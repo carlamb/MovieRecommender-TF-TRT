@@ -1,6 +1,7 @@
 """ Recommender model and utility methods to train, predict and evaluate """
 
-import tensorflow as tf
+import functools
+from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.layers import concatenate, Dense, Embedding, Input
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.optimizers import Adam, SGD
@@ -17,7 +18,10 @@ DEFAULT_PARAMS = {
     "optimizer": "adam",
     "lr": 0.001,
     "beta_1": 0.9,
-    "beta_2": 0.999
+    "beta_2": 0.999,
+
+    "num_negs_per_pos": 4,
+    "k": 4
 }
 
 
@@ -93,6 +97,7 @@ def build_mlp_model(params=DEFAULT_PARAMS):
 
 
 def compile_model(model, params=DEFAULT_PARAMS):
+    # Set optimizer
     if params["optimizer"] == "adam":
         optimizer = Adam(params["lr"], params["beta_1"], params["beta_2"])
     elif params["optimizer"] == "sgd":
@@ -100,4 +105,38 @@ def compile_model(model, params=DEFAULT_PARAMS):
     else:
         raise NotImplementedError("Optimizer {} is not implemented.".format(params["optimizer"]))
 
-    model.compile(optimizer=optimizer, loss="binary_crossentropy")
+    # Set metrics
+    hit_rate_fn = functools.partial(hit_rate, num_negs_per_pos=params["num_negs_per_pos"], k=params["k"])
+    hit_rate_fn.__name__ = 'HR'
+
+    # Compile model
+    model.compile(optimizer=optimizer,
+                  loss="binary_crossentropy",
+                  metrics=[hit_rate_fn])
+
+
+def hit_rate(y_true, y_pred, num_negs_per_pos, k):
+    """
+    Compute HR (Hit Rate) in batch considering only the top 'k' items in the rank.
+
+    Parameters
+    ----------
+    y_true : `tf.Tensor` (or `np.array`)
+        True labels. For every (`num_negs_per_pos` + 1) items, there should be only one positive class (+1)
+        and the rest are negative (0).
+    y_pred : `tf.Tensor` (or `np.array`)
+        Predicted logits.
+    num_negs_per_pos : int
+        Number of negative examples for each positive one (for the same user).
+    k : int
+        Number of top elements to consider for the metric computation.
+
+    Returns
+    -------
+    hit rate: `tf.Tensor`
+        A single value tensor with the hit rate for the batch.
+    """
+    y_pred_per_user = K.reshape(y_pred, (-1, num_negs_per_pos + 1))
+    labels_per_user = K.math_ops.argmax(K.reshape(y_true, (-1, num_negs_per_pos + 1)), axis=-1)
+    return K.mean(K.in_top_k(y_pred_per_user, labels_per_user, k), axis=-1)
+

@@ -22,7 +22,8 @@ DEFAULT_PARAMS = {
     "batch_size": 1200,
     "eval_batch_size": 300,
     "epochs": 1, #1000
-    "num_negs_per_pos": 4
+    "num_negs_per_pos": 4,
+    "k": 4
 }
 
 
