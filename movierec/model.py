@@ -108,11 +108,14 @@ def compile_model(model, params=DEFAULT_PARAMS):
     # Set metrics
     hit_rate_fn = functools.partial(hit_rate, num_negs_per_pos=params["num_negs_per_pos"], k=params["k"])
     hit_rate_fn.__name__ = 'HR'
+    dcg_fn = functools.partial(dcg, batch_size=params["batch_size"], num_negs_per_pos=params["num_negs_per_pos"],
+                               k=params["k"])
+    dcg_fn.__name__ = 'DCG'
 
     # Compile model
     model.compile(optimizer=optimizer,
                   loss="binary_crossentropy",
-                  metrics=[hit_rate_fn])
+                  metrics=[hit_rate_fn, dcg_fn])
 
 
 def hit_rate(y_true, y_pred, num_negs_per_pos, k):
@@ -140,3 +143,43 @@ def hit_rate(y_true, y_pred, num_negs_per_pos, k):
     labels_per_user = K.math_ops.argmax(K.reshape(y_true, (-1, num_negs_per_pos + 1)), axis=-1)
     return K.mean(K.in_top_k(y_pred_per_user, labels_per_user, k), axis=-1)
 
+
+def dcg(y_true, y_pred, batch_size, num_negs_per_pos, k):
+    """
+    Compute DCG (Discounted Cummulative Gain) considering
+    only the top 'k' items in the rank.
+
+    Parameters
+    ----------
+    y_true : `tf.Tensor` (or `np.array`)
+        True labels. For every (`num_negs_per_pos` + 1) items, there should be only one positive class (+1)
+        and the rest are negative (0).
+    y_pred : `tf.Tensor` (or `np.array`)
+        Predicted logits.
+    batch_size : int
+        Size of the batch.
+    num_negs_per_pos : int
+        Number of negative examples for each positive one (for the same user).
+    k : int
+        Number of top elements to consider for the metric computation.
+
+    Returns
+    -------
+    hit rate: `tf.Tensor`
+        A single value tensor with the average DCG on top k for the batch.
+    """
+    y_pred_per_user = K.reshape(y_pred, (-1, num_negs_per_pos + 1))
+
+    labels_per_user = K.reshape(y_true, (-1, num_negs_per_pos + 1))
+    labels_per_user = K.math_ops.argmax(labels_per_user, axis=-1, output_type=K.dtypes_module.int32)
+
+    values, indices = K.nn.top_k(y_pred_per_user, k, sorted=True)
+
+    # get the position of the label in the ranked list (if not in top K, position not returned)
+    pos_label = K.array_ops.where(K.equal(indices, K.reshape(labels_per_user, (-1, 1))))[:, -1]
+
+    dcg_batch = K.math_ops.log(2.) / K.math_ops.log(K.cast(pos_label, K.dtypes_module.float32) + 2)
+
+    # Compute mean.
+    # If label not in top K, count as 0.0, and since dcg_batch does not include 0s: mean = sum(dcg_batch) / bach_size
+    return K.sum(dcg_batch) / batch_size

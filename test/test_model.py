@@ -1,4 +1,5 @@
-from movierec.model import build_mlp_model, compile_model, hit_rate
+import math
+from movierec.model import build_mlp_model, compile_model, hit_rate, dcg
 import numpy as np
 import tensorflow as tf
 from unittest import TestCase
@@ -81,3 +82,37 @@ class TestModel(TestCase):
         self.assertEqual(hr, 1.0)
         hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=5))
         self.assertEqual(hr, 1.0)
+
+    def _dcg_index(self, index):
+        return math.log(2) / math.log(index + 2)
+
+    def test_dcg(self):
+        # last elem in each row is expected label (should be max in pred)
+        y_true = np.array([[0, 0, 0, 1],
+                           [0, 0, 0, 1]])
+        y_pred = np.array([[0.1, 0.2, 0.9, 0.5],
+                           [0.9, 0.8, 0.7, 0.6]], dtype=np.float32)
+        num_negs_per_pos = 3
+        batch_size = 2
+
+        # compute individual DCG. In first row label is ranked 1 (0-indexed) and in row 2, 3
+        dcg0 = self._dcg_index(1)
+        dcg1 = self._dcg_index(3)
+
+        # for top 0, top 1: no hit: dcg=0
+        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=0))
+        self.assertEqual(avg_dcg, 0.0)
+        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=1))
+        self.assertEqual(avg_dcg, 0.0)
+
+        # top 2, top 3: first row is hit, second is not
+        expected_avg = (dcg0 + 0.0) / 2.
+        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=2))
+        self.assertAlmostEqual(avg_dcg, expected_avg)
+        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=3))
+        self.assertAlmostEqual(avg_dcg, expected_avg)
+
+        # k = 4: all in top
+        expected_avg = (dcg0 + dcg1) / 2.
+        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=4))
+        self.assertAlmostEqual(avg_dcg, expected_avg)
