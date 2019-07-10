@@ -68,16 +68,14 @@ def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS):
     params["num_users"] = train_data_generator.num_users
     params["num_items"] = train_data_generator.num_items
 
-    movierec_model = MovierecModel(params)
+    movierec_model = MovierecModel(params, output_model_file)
     movierec_model.log_summary()
 
     # set learning phase to 'train' and train model
     K.set_learning_phase(1)
-    movierec_model.model.fit_generator(generator=train_data_generator,
-                                       validation_data=validation_data_generator,
-                                       epochs=params["epochs"])
+    movierec_model.fit_generator(train_data_generator, validation_data_generator, params["epochs"])
 
-    movierec_model.save(output_model_file)
+    movierec_model.save()
 
 
 if __name__ == '__main__':

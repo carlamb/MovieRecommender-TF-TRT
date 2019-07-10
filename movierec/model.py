@@ -1,13 +1,18 @@
 """ Recommender model and utility methods to train, predict and evaluate """
 
 import functools
+import logging
+import os
 from tensorflow.python.keras import backend as K
+from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.python.keras.layers import concatenate, Dense, Embedding, Input
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.optimizers import Adam, SGD
 from tensorflow.python.keras.regularizers import l2
 
-DEFAULT_PARAMS = {
+
+DEFAULT_PARAMS = {  # Just some toy params to test the code
+
     # model:
     "num_users": 5,
     "num_items": 10,
@@ -29,19 +34,23 @@ ADAM = "adam"
 SGD = "sgd"
 OPTIMIZERS = [ADAM, SGD]
 
+HIT_RATE = "hr"
+DCG = "dcg"
+
 
 class MovierecModel(object):
     """
     Movie Recommendation Model
     """
 
-    def __init__(self, params=DEFAULT_PARAMS):
+    def __init__(self, params=DEFAULT_PARAMS, output_model_file="models/movirec.h5", ):
         """
         Create a movie recommendation model.
+
         Parameters
         ----------
-        Parameters
-        ----------
+        output_model_file : str or `os.path`
+            Output file to save the Keras model (HDF5 format).
         params : dict of param names (str) to values (any type)
            Dictionary of model hyper parameters. Default: `DEFAULT_PARAMS`
 
@@ -77,6 +86,16 @@ class MovierecModel(object):
         if self._k > (self._num_negs_per_pos + 1):
             raise ValueError("'k' must be lower than (num_negs_per_pos + 1). Found: k={}, "
                              "num_negs_per_pos={}".format(self._k, self._num_negs_per_pos))
+
+        # Create output dir and get file names
+        model_dir = os.path.dirname(output_model_file)
+        try:
+            os.makedirs(model_dir)
+        except FileExistsError:
+            # directory already exists
+            pass
+        self._output_model_file = output_model_file
+        self._output_model_checkpoints = os.path.join(model_dir, "checkpoint.{epoch:02d}-{val_loss:.2f}.hdf5")
 
         # Build model and compile
         self.model = self.build_mlp_model()
@@ -149,11 +168,11 @@ class MovierecModel(object):
         else:
             raise NotImplementedError("Optimizer {} is not implemented.".format(self._optimizer))
 
-        # Set metrics
+        # Create metrics
         hit_rate_fn = functools.partial(hit_rate, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
-        hit_rate_fn.__name__ = 'HR'
+        hit_rate_fn.__name__ = HIT_RATE
         dcg_fn = functools.partial(dcg, batch_size=self._batch_size, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
-        dcg_fn.__name__ = 'DCG'
+        dcg_fn.__name__ = DCG
 
         # Compile model
         self.model.compile(optimizer=optimizer,
@@ -163,15 +182,40 @@ class MovierecModel(object):
     def log_summary(self):
         self.model.summary(print_fn=logging.info)
 
-    def save(self, output_model_file="models/movirec.h5"):
+    def save(self):
         # Save model
-        try:
-            os.makedirs(os.path.dirname(output_model_file))
-        except FileExistsError:
-            # directory already exists
-            pass
-        self.model.save(output_model_file)
-        logging.info('Keras model saved to {}'.format(output_model_file))
+        self.model.save(self._output_model_file)
+        logging.info('Keras model saved to {}'.format(self._output_model_file))
+
+    def fit_generator(self, train_data_generator, validation_data_generator, epochs):
+        """
+        Call keras 'fit_generator' on the model with early stopping and checkpoint callbacks.
+
+        Parameters
+        ----------
+        train_data_generator : A generator or a `keras.utils.Sequence`
+            Generator of training data.
+        validation_data_generator : A generator or a `keras.utils.Sequence`
+            Generator of validation data.
+        epochs : int
+            Number of epochs.
+
+        Returns
+        -------
+            Output of model.fit_generator(...) (`History`)
+        """
+        # Callbacks
+        monitor = 'val_{}'.format(DCG)
+        callbacks = [
+            EarlyStopping(monitor=monitor, patience=3, mode='max', restore_best_weights=True),
+            ModelCheckpoint(self._output_model_checkpoints, monitor=monitor, save_best_only=True,
+                            save_weights_only=False, mode='max')
+        ]
+
+        return self.model.fit_generator(generator=train_data_generator,
+                                        validation_data=validation_data_generator,
+                                        epochs=epochs,
+                                        callbacks=callbacks)
 
 
 def hit_rate(y_true, y_pred, num_negs_per_pos, k):
