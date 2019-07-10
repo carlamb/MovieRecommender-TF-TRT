@@ -1,5 +1,5 @@
 import math
-from movierec.model import build_mlp_model, compile_model, hit_rate, dcg
+from movierec.model import MovierecModel, hit_rate, dcg
 import numpy as np
 import tensorflow as tf
 from unittest import TestCase
@@ -15,7 +15,11 @@ TEST_PARAMS = {
     "optimizer": "adam",
     "lr": 0.001,
     "beta_1": 0.9,
-    "beta_2": 0.999
+    "beta_2": 0.999,
+
+    "batch_size": 35,
+    "num_negs_per_pos": 4,
+    "k": 4
 }
 
 
@@ -25,15 +29,15 @@ class TestModel(TestCase):
         params = TEST_PARAMS.copy()
         # add one more layer to "layers_sizes", but not to "layers_l2reg" to generate error
         params["layers_sizes"].append(2)
-        self.assertRaises(ValueError, build_mlp_model, params)
+        self.assertRaises(ValueError, MovierecModel, params)
 
     def test_missing_param(self):
         params = TEST_PARAMS.copy()
         del params["num_users"]
-        self.assertRaises(KeyError, build_mlp_model, params)
+        self.assertRaises(KeyError, MovierecModel, params)
 
     def test_build_mlp_model(self):
-        model = build_mlp_model(TEST_PARAMS)
+        model = MovierecModel(TEST_PARAMS).model
 
         self.assertEqual(model.input_shape, [(None, 1), (None, 1)])
         self.assertEqual(len(model.inputs), 2)
@@ -48,7 +52,9 @@ class TestModel(TestCase):
         self.assertEqual(len(model.non_trainable_variables), 0)
 
     def test_not_implemented_optimizer(self):
-        self.assertRaises(NotImplementedError, compile_model, "model", {"optimizer": "Other"})
+        params = TEST_PARAMS.copy()
+        params["optimizer"] = "other"
+        self.assertRaises(NotImplementedError, MovierecModel, params)
 
     def _eval_tensor(self, tensor):
         sess = tf.Session()

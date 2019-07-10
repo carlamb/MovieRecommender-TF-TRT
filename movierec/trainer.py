@@ -2,7 +2,7 @@
 
 import data_pipeline
 import logging
-from model import build_mlp_model, compile_model
+from model import MovierecModel
 import os
 from tensorflow.python.keras import backend as K
 
@@ -64,28 +64,20 @@ def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS):
         extra_data_df=train_df,  # Use train to avoid positives from train in validation.
         shuffle=False)
 
-    # update params:
+    # update users and items (obtained from data) and create model:
     params["num_users"] = train_data_generator.num_users
     params["num_items"] = train_data_generator.num_items
 
-    # Create and train the model
-    model = build_mlp_model(params)
-    compile_model(model, params)
+    movierec_model = MovierecModel(params)
+    movierec_model.log_summary()
 
-    # set learning phase to 'train'
+    # set learning phase to 'train' and train model
     K.set_learning_phase(1)
-    model.fit_generator(generator=train_data_generator,
-                        epochs=params["epochs"],
-                        validation_data=validation_data_generator)
+    movierec_model.model.fit_generator(generator=train_data_generator,
+                                       validation_data=validation_data_generator,
+                                       epochs=params["epochs"])
 
-    # Save model
-    try:
-        os.makedirs( os.path.dirname(output_model_file))
-    except FileExistsError:
-        # directory already exists
-        pass
-    model.save(output_model_file)
-    logging.info('Keras model saved to {}'.format(output_model_file))
+    movierec_model.save(output_model_file)
 
 
 if __name__ == '__main__':
