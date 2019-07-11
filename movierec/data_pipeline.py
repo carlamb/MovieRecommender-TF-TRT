@@ -14,8 +14,8 @@ from tensorflow.python.keras.utils import Sequence
 MOVIELENS_URL_FORMAT = 'http://files.grouplens.org/datasets/movielens/{}.zip'
 
 ML_100K = 'ml-100k'
-ML_1M = 'ml-1M'
-ML_20M = 'ml-20M'
+ML_1M = 'ml-1m'
+ML_20M = 'ml-20m'
 MOVIELENS_DATASET_NAMES = [ML_100K, ML_1M, ML_20M]
 
 ZIP_EXTENSION = '.zip'
@@ -58,6 +58,7 @@ COL_LABEL = 'label'
 class MovieLensDataGenerator(Sequence):
 
     def __init__(self, dataset_name, data_df, batch_size, negatives_per_positive, extra_data_df=None, shuffle=True):
+        # TODO yield last incomplete batch (optional)
         """
         Create a generator that provides batches of Movielens data for training or testing purposes.
         Every batch contains positive and negative examples. The positive examples are taken from `data_df`.
@@ -178,7 +179,7 @@ class MovieLensDataGenerator(Sequence):
         # Get the positives
         positives = self.data.iloc[idxs_pos]
         # users are repeated to include negatives
-        x_user = np.repeat(positives[COL_USER_ID], 1 + self.negatives_per_positive)
+        x_user = np.repeat(positives[COL_USER_ID].values, 1 + self.negatives_per_positive)
 
         # items: for every positive, create array of random negatives and the positive at the end
         items_with_negatives = positives.apply(self._get_random_negatives_and_positive, axis=1)
@@ -215,10 +216,11 @@ def download_movielens(dataset_name, output_dir):
                          .format(dataset_name, ', '.join(MOVIELENS_DATASET_NAMES)))
 
     with tempfile.TemporaryDirectory() as temp_dir:  # automatically cleaned up after this context
-        logging.info('Downloading Movielens {}'.format(dataset_name))
         # download dataset zip file into temporary folder
         dataset_url = MOVIELENS_URL_FORMAT.format(dataset_name)
         dataset_file_name = os.path.join(temp_dir, dataset_name + ZIP_EXTENSION)
+
+        logging.info('Downloading Movielens {}'.format(dataset_url))
         urlretrieve(dataset_url, dataset_file_name)
 
         logging.info('Downloaded {}'.format(dataset_file_name))
