@@ -1,5 +1,5 @@
 import math
-from movierec.model import MovierecModel, hit_rate, dcg
+from movierec.model import MovierecModel, hit_rate, discounted_cumulative_gain, _dcg_hr
 import numpy as np
 import tensorflow as tf
 from unittest import TestCase
@@ -71,23 +71,19 @@ class TestModel(TestCase):
                            [0.9, 0.8, 0.7, 0.6]], dtype=np.float32)
         num_negs_per_pos = 3
 
-        # for top 0, top 1: hr=0
-        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=0))
-        self.assertEqual(hr, 0.0)
-        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=1))
-        self.assertEqual(hr, 0.0)
-
-        # top 2, top 3: first row is hit, second is not
-        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=2))
-        self.assertEqual(hr, 0.5)
-        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=3))
-        self.assertEqual(hr, 0.5)
-
-        # k > 4: all in top
-        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=4))
-        self.assertEqual(hr, 1.0)
-        hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=5))
-        self.assertEqual(hr, 1.0)
+        k_to_hr = {
+            # for top 0, top 1: no hit: dcg=0
+            0: 0.0,
+            1: 0.0,
+            # top 2, top 3: first row is hit, second is not
+            2: 0.5,
+            3: 0.5,
+            # k = 4: all in top
+            4: 1
+        }
+        for k, expected_hr in k_to_hr.items():
+            avg_hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=k))
+            self.assertAlmostEqual(avg_hr, expected_hr, msg="Test for k={}".format(k))
 
     def _dcg_index(self, index):
         return math.log(2) / math.log(index + 2)
@@ -99,26 +95,45 @@ class TestModel(TestCase):
         y_pred = np.array([[0.1, 0.2, 0.9, 0.5],
                            [0.9, 0.8, 0.7, 0.6]], dtype=np.float32)
         num_negs_per_pos = 3
-        batch_size = 2
 
         # compute individual DCG. In first row label is ranked 1 (0-indexed) and in row 2, 3
         dcg0 = self._dcg_index(1)
         dcg1 = self._dcg_index(3)
 
-        # for top 0, top 1: no hit: dcg=0
-        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=0))
-        self.assertEqual(avg_dcg, 0.0)
-        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=1))
-        self.assertEqual(avg_dcg, 0.0)
+        k_to_dcg = {
+            # for top 0, top 1: no hit: dcg=0
+            0: 0.0,
+            1: 0.0,
+            # top 2, top 3: first row is hit, second is not
+            2: dcg0 / 2.,
+            3: dcg0 / 2.,
+            # k = 4: all in top
+            4: (dcg0 + dcg1) / 2.
+        }
+        for k, expected_dcg in k_to_dcg.items():
+            dcg = self._eval_tensor(discounted_cumulative_gain(y_true, y_pred, num_negs_per_pos, k=k))
+            self.assertAlmostEqual(dcg, expected_dcg, msg="Test for k={}".format(k))
 
-        # top 2, top 3: first row is hit, second is not
-        expected_avg = (dcg0 + 0.0) / 2.
-        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=2))
-        self.assertAlmostEqual(avg_dcg, expected_avg)
-        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=3))
-        self.assertAlmostEqual(avg_dcg, expected_avg)
+    def test_dgc_hr_on_ties(self):
+        # last elem in each row is expected label (should be max in pred)
+        y_true = np.array([[0, 0, 0, 1]])
+        y_pred = np.array([[0.9, 0.55, 0.55, 0.55]], dtype=np.float32)
+        num_negs_per_pos = 3
 
-        # k = 4: all in top
-        expected_avg = (dcg0 + dcg1) / 2.
-        avg_dcg = self._eval_tensor(dcg(y_true, y_pred, batch_size, num_negs_per_pos, k=4))
-        self.assertAlmostEqual(avg_dcg, expected_avg)
+        # when there are ties, both DCG and Hit Rate should perform the same method (include or exclude)
+
+        # for top 0, top 1: no hit
+        # top 2, top 3: is a tie, but since index is last, gets excluded from top K
+        for k in (0, 1, 2, 3):
+            dcg, hr = _dcg_hr(y_true, y_pred, num_negs_per_pos, k=k)
+            dcg = self._eval_tensor(dcg)
+            hr = self._eval_tensor(hr)
+            self.assertEqual(dcg, 0.0, msg="Test dcg for k={}".format(k))
+            self.assertEqual(hr, 0.0, msg="Test hr for k={}".format(k))
+
+        # only top 4 should count the hit
+        dcg, hr = _dcg_hr(y_true, y_pred, num_negs_per_pos, k=4)
+        dcg = self._eval_tensor(dcg)
+        hr = self._eval_tensor(hr)
+        self.assertAlmostEqual(dcg, self._dcg_index(3), msg="Test dcg for k={}".format(k))
+        self.assertAlmostEqual(hr, 1.0, msg="Test hr for k={}".format(k))

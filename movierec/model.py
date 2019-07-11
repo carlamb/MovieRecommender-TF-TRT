@@ -172,7 +172,7 @@ class MovierecModel(object):
         # Create metrics
         hit_rate_fn = functools.partial(hit_rate, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
         hit_rate_fn.__name__ = HIT_RATE
-        dcg_fn = functools.partial(dcg, batch_size=self._batch_size, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
+        dcg_fn = functools.partial(discounted_cumulative_gain, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
         dcg_fn.__name__ = DCG
 
         # Compile model
@@ -240,15 +240,12 @@ def hit_rate(y_true, y_pred, num_negs_per_pos, k):
     hit rate: `tf.Tensor`
         A single value tensor with the hit rate for the batch.
     """
-    y_pred_per_user = K.reshape(y_pred, (-1, num_negs_per_pos + 1))
-    labels_per_user = K.math_ops.argmax(K.reshape(y_true, (-1, num_negs_per_pos + 1)), axis=-1)
-    return K.mean(K.in_top_k(y_pred_per_user, labels_per_user, k), axis=-1)
+    return _dcg_hr(y_true, y_pred, num_negs_per_pos, k)[1]
 
 
-def dcg(y_true, y_pred, batch_size, num_negs_per_pos, k):
+def discounted_cumulative_gain(y_true, y_pred, num_negs_per_pos, k):
     """
-    Compute DCG (Discounted Cummulative Gain) considering
-    only the top 'k' items in the rank.
+    Compute DCG (Discounted Cumulative Gain) considering only the top 'k' items in the rank.
 
     Parameters
     ----------
@@ -257,8 +254,6 @@ def dcg(y_true, y_pred, batch_size, num_negs_per_pos, k):
         and the rest are negative (0).
     y_pred : `tf.Tensor` (or `np.array`)
         Predicted logits.
-    batch_size : int
-        Size of the batch.
     num_negs_per_pos : int
         Number of negative examples for each positive one (for the same user).
     k : int
@@ -267,20 +262,50 @@ def dcg(y_true, y_pred, batch_size, num_negs_per_pos, k):
     Returns
     -------
     hit rate: `tf.Tensor`
-        A single value tensor with the average DCG on top k for the batch.
+        A single value tensor with the average Hit Rate on the top k for the batch.
     """
-    y_pred_per_user = K.reshape(y_pred, (-1, num_negs_per_pos + 1))
+    return _dcg_hr(y_true, y_pred, num_negs_per_pos, k)[0]
 
+
+def _dcg_hr(y_true, y_pred, num_negs_per_pos, k):
+    """
+    Compute DCG (Discounted Cumulative Gain) and Hit Rate considering only the top 'k' items in the rank.
+
+    Parameters
+    ----------
+    y_true : `tf.Tensor` (or `np.array`)
+        True labels. For every (`num_negs_per_pos` + 1) items, there should be only one positive class (+1)
+        and the rest are negative (0).
+    y_pred : `tf.Tensor` (or `np.array`)
+        Predicted logits.
+    num_negs_per_pos : int
+        Number of negative examples for each positive one (for the same user).
+    k : int
+        Number of top elements to consider for the metric computation.
+
+    Returns
+    -------
+    hit rate: Tuple of 2 `tf.Tensor`
+        dcg: A single value tensor with the average DCG on the top k for the batch.
+        hr: A single value tensor with the average Hit Rate on the top k for the batch.
+    """
+    # Get predictions and labels per user
+    y_pred_per_user = K.reshape(y_pred, (-1, num_negs_per_pos + 1))
     labels_per_user = K.reshape(y_true, (-1, num_negs_per_pos + 1))
     labels_per_user = K.math_ops.argmax(labels_per_user, axis=-1, output_type=K.dtypes_module.int32)
 
-    values, indices = K.nn.top_k(y_pred_per_user, k, sorted=True)
+    # get rank indices per user
+    _, indices = K.nn.top_k(y_pred_per_user, K.shape(y_pred_per_user)[1], sorted=True)
 
-    # get the position of the label in the ranked list (if not in top K, position not returned)
+    # get the position of the expecgtedvlabel in the ranked list
     pos_label = K.array_ops.where(K.equal(indices, K.reshape(labels_per_user, (-1, 1))))[:, -1]
 
-    dcg_batch = K.math_ops.log(2.) / K.math_ops.log(K.cast(pos_label, K.dtypes_module.float32) + 2)
+    # compute dcg for each item, but make 0.0 the entries where position is > k (only consider top k)
+    dcg_per_user = K.math_ops.log(2.) / K.math_ops.log(K.cast(pos_label, K.dtypes_module.float32) + 2)
+    hits_per_user = K.cast(K.less(pos_label, k), K.dtypes_module.float32)
+    dcg_per_user *= hits_per_user
 
-    # Compute mean.
-    # If label not in top K, count as 0.0, and since dcg_batch does not include 0s: mean = sum(dcg_batch) / bach_size
-    return K.sum(dcg_batch) / batch_size
+    # return mean dcg and hit rate
+    dcg = K.mean(dcg_per_user, axis=-1)
+    hr = K.mean(hits_per_user, axis=-1)
+    return dcg, hr
