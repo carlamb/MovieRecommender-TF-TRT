@@ -5,7 +5,7 @@ import logging
 import os
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.python.keras.layers import concatenate, Dense, Embedding, Input
+from tensorflow.python.keras.layers import concatenate, Dense, Embedding, Input, Flatten
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.optimizers import Adam, SGD
 from tensorflow.python.keras.regularizers import l2
@@ -137,7 +137,8 @@ class MovierecModel(object):
             embeddings_initializer="glorot_uniform", embeddings_regularizer=l2(self._layers_l2reg[0]),
             name="item_embedding"
         )
-        mlp_layer = concatenate([user_embedding(user_input), item_embedding(item_input)])
+        mlp_layer = concatenate([Flatten()(user_embedding(user_input)),
+                                 Flatten()(item_embedding(item_input))])
 
         # Hidden layers
         for layer_i in range(1, self._num_layers):

@@ -41,9 +41,9 @@ class TestModel(TestCase):
 
         self.assertEqual(model.input_shape, [(None, 1), (None, 1)])
         self.assertEqual(len(model.inputs), 2)
-        self.assertEqual(len(model.layers), 7)  # 2 inputs, 2 embeddings, 1 concat, 1 hidden, 1 output
+        self.assertEqual(len(model.layers), 9)  # 2 inputs, 2 flatten, 2 embeddings, 1 concat, 1 hidden, 1 output
         self.assertEqual(len(model.outputs), 1)
-        self.assertEqual(model.output_shape, (None, 1, 1))
+        self.assertEqual(model.output_shape, (None, 1))
 
         self.assertTrue(model.trainable)
         self.assertEqual(len(model.trainable_weights), 6)  # 1x2 embedding, 2(kernel+bias)x1 hidden, 2x1 output
