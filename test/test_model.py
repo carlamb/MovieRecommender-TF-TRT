@@ -1,5 +1,6 @@
+import tensorflow.python.keras.backend as K
 import math
-from movierec.model import MovierecModel, hit_rate, discounted_cumulative_gain, _dcg_hr
+from movierec.model import _dcg_hr, discounted_cumulative_gain, hit_rate, MovierecModel, RankLayer
 import numpy as np
 import tensorflow as tf
 from unittest import TestCase
@@ -137,3 +138,27 @@ class TestModel(TestCase):
         hr = self._eval_tensor(hr)
         self.assertAlmostEqual(dcg, self._dcg_index(3), msg="Test dcg for k={}".format(k))
         self.assertAlmostEqual(hr, 1.0, msg="Test hr for k={}".format(k))
+
+    def test_rank_layer(self):
+        rank_layer = RankLayer(num_negs_per_pos_train=2, num_negs_per_pos_eval=3, name="rank")
+
+        # test 'training' learning phase
+        K.set_learning_phase(1)
+
+        # 2 users, 3 items per user (2 negs + 1 positive)
+        input = np.array([0.9, 0.8, 0.7, 0.7, 0.8, 0.9])
+        expected_rank = np.array([[0, 1, 2],
+                                  [2, 1, 0]])
+        pred_rank = self._eval_tensor(rank_layer.call(input))
+        np.testing.assert_equal(pred_rank, expected_rank)
+
+
+        # test 'eval' learning phase
+        K.set_learning_phase(0)
+
+        # 2 users, 4 items per user (3 negs + 1 positive)
+        input = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.9, 0.9, 0.9])
+        expected_rank = np.array([[0, 1, 2, 3],
+                                  [1, 2, 3, 0]])
+        pred_rank = self._eval_tensor(rank_layer.call(input))
+        np.testing.assert_equal(pred_rank, expected_rank)

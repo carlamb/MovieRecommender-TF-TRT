@@ -5,7 +5,7 @@ import logging
 import os
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.python.keras.layers import concatenate, Dense, Embedding, Input, Flatten
+from tensorflow.python.keras.layers import concatenate, Dense, Embedding, Input, Flatten, Layer
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.optimizers import Adam, SGD
 from tensorflow.python.keras.regularizers import l2
@@ -217,6 +217,28 @@ class MovierecModel(object):
                                         validation_data=validation_data_generator,
                                         epochs=epochs,
                                         callbacks=callbacks)
+
+
+class RankLayer(Layer):
+
+    def __init__(self, num_negs_per_pos_train, num_negs_per_pos_eval, name):
+        super(RankLayer, self).__init__(name=name)
+        self.num_negs_per_pos_train = num_negs_per_pos_train
+        self.num_negs_per_pos_eval = num_negs_per_pos_eval
+        self._uses_learning_phase = True
+
+    def build(self, input_shape):
+        self.built = True
+
+    def call(self, inputs):
+        inputs = K.ops.convert_to_tensor(inputs)
+
+        num_negs_per_pos = K.in_train_phase(self.num_negs_per_pos_train, self.num_negs_per_pos_eval)
+
+        # Reshape and get ranked indices per user
+        y_pred_per_user = K.reshape(inputs, (-1, num_negs_per_pos + 1))
+        _, indices = K.nn.top_k(y_pred_per_user, K.shape(y_pred_per_user)[1], sorted=True)
+        return indices
 
 
 def hit_rate(y_true, y_pred, num_negs_per_pos, k):
