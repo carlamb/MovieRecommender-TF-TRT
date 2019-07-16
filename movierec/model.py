@@ -37,6 +37,11 @@ OPTIMIZERS = [ADAM, SGD]
 HIT_RATE = "hr"
 DCG = "dcg"
 
+OUTPUT_PRED = "output"
+OUTPUT_RANK = "rank"
+
+METRIC_VAL_DCG = "val_{}".format(DCG)
+
 
 class MovierecModel(object):
     """
@@ -152,12 +157,12 @@ class MovierecModel(object):
         # Prediction layer
         pred_layer = Dense(
             units=1, activation="sigmoid",
-            kernel_initializer="lecun_uniform", name="output"
+            kernel_initializer="lecun_uniform", name=OUTPUT_PRED
         )
-        output = pred_layer(mlp_layer)
+        output_pred = pred_layer(mlp_layer)
 
         # Create Model
-        model = Model([user_input, item_input], output)
+        model = Model([user_input, item_input], output_pred)
         return model
 
     def compile_model(self):
@@ -203,16 +208,14 @@ class MovierecModel(object):
 
         Returns
         -------
-            Output of model.fit_generator(...) (`History`)
+            Output of model.fit_generator(...) (`History` object)
         """
         # Callbacks
-        monitor = 'val_{}'.format(DCG)
         callbacks = [
-            EarlyStopping(monitor=monitor, patience=3, mode='max', restore_best_weights=True),
-            ModelCheckpoint(self._output_model_checkpoints, monitor=monitor, save_best_only=True,
+            EarlyStopping(monitor=METRIC_VAL_DCG, mode='max', restore_best_weights=True),
+            ModelCheckpoint(self._output_model_checkpoints, monitor=METRIC_VAL_DCG, save_best_only=True,
                             save_weights_only=False, mode='max')
         ]
-
         return self.model.fit_generator(generator=train_data_generator,
                                         validation_data=validation_data_generator,
                                         epochs=epochs,
