@@ -27,6 +27,8 @@ DEFAULT_PARAMS = {  # Just some toy params to test the code
 
     "batch_size": 35,
     "num_negs_per_pos": 4,
+    "batch_size_eval": 35,
+    "num_negs_per_pos_eval": 4,
     "k": 4
 }
 
@@ -40,7 +42,7 @@ DCG = "dcg"
 OUTPUT_PRED = "output"
 OUTPUT_RANK = "rank"
 
-METRIC_VAL_DCG = "val_{}".format(DCG)
+METRIC_VAL_DCG = "val_{}_{}".format(OUTPUT_PRED, DCG)
 
 
 class MovierecModel(object):
@@ -87,10 +89,21 @@ class MovierecModel(object):
             raise ValueError("Batch size must be divisible by (num_negs_per_pos + 1). Found: batch_size={}, "
                              "num_negs_per_pos={}".format(self._batch_size, self._num_negs_per_pos))
 
+        self._batch_size_eval = params["batch_size_eval"]
+        self._num_negs_per_pos_eval = params["num_negs_per_pos_eval"]
+        if self._num_negs_per_pos_eval <= 0:
+            raise ValueError("num_negs_per_pos_eval must be > 0, found {}".format(self._num_negs_per_pos_eval))
+
+        if self._batch_size_eval % (self._num_negs_per_pos_eval + 1):
+            raise ValueError("Batch size (eval) must be divisible by (num_negs_per_pos_eval + 1). Found: "
+                             "batch_size_eval={}, num_negs_per_pos_eval={}".format(self._batch_size_eval,
+                                                                                   self._num_negs_per_pos_eval))
+
         self._k = params.get("k", self._num_negs_per_pos + 1)  # optional
         if self._k > (self._num_negs_per_pos + 1):
-            raise ValueError("'k' must be lower than (num_negs_per_pos + 1). Found: k={}, "
-                             "num_negs_per_pos={}".format(self._k, self._num_negs_per_pos))
+            raise ValueError("'k' must be lower than (num_negs_per_pos + 1) and lower than (num_negs_per_pos_eval + 1)."
+                             "Found: k={}, num_negs_per_pos={}, num_negs_per_pos_eval={}"
+                             .format(self._k, self._num_negs_per_pos, self._num_negs_per_pos_eval))
 
         # Create output dir and get file names
         model_dir = os.path.dirname(output_model_file)
@@ -161,8 +174,11 @@ class MovierecModel(object):
         )
         output_pred = pred_layer(mlp_layer)
 
+        rank_layer = RankLayer(self._num_negs_per_pos, self._num_negs_per_pos_eval, name=OUTPUT_RANK)
+        rank = rank_layer(output_pred)
+
         # Create Model
-        model = Model([user_input, item_input], output_pred)
+        model = Model([user_input, item_input], [output_pred, rank])
         return model
 
     def compile_model(self):
@@ -175,6 +191,7 @@ class MovierecModel(object):
             raise NotImplementedError("Optimizer {} is not implemented.".format(self._optimizer))
 
         # Create metrics
+        # TODO: consider _num_negs_per_pos_eval for validation!
         hit_rate_fn = functools.partial(hit_rate, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
         hit_rate_fn.__name__ = HIT_RATE
         dcg_fn = functools.partial(discounted_cumulative_gain, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
@@ -182,8 +199,8 @@ class MovierecModel(object):
 
         # Compile model
         self.model.compile(optimizer=optimizer,
-                           loss="binary_crossentropy",
-                           metrics=[hit_rate_fn, dcg_fn])
+                           loss={OUTPUT_PRED: "binary_crossentropy"},
+                           metrics={OUTPUT_PRED: [hit_rate_fn, dcg_fn]})
 
     def log_summary(self):
         self.model.summary(print_fn=logging.info)

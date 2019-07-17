@@ -18,8 +18,10 @@ TEST_PARAMS = {
     "beta_1": 0.9,
     "beta_2": 0.999,
 
-    "batch_size": 35,
-    "num_negs_per_pos": 4,
+    "batch_size": 8,
+    "num_negs_per_pos": 3,
+    "batch_size_eval": 10,
+    "num_negs_per_pos_eval": 4,
     "k": 4
 }
 
@@ -42,9 +44,9 @@ class TestModel(TestCase):
 
         self.assertEqual(model.input_shape, [(None, 1), (None, 1)])
         self.assertEqual(len(model.inputs), 2)
-        self.assertEqual(len(model.layers), 9)  # 2 inputs, 2 flatten, 2 embeddings, 1 concat, 1 hidden, 1 output
-        self.assertEqual(len(model.outputs), 1)
-        self.assertEqual(model.output_shape, (None, 1))
+        self.assertEqual(len(model.layers), 10)  # 2 inputs, 2 flatten, 2 embeddings, 1 concat, 1 hidden, 2 outputs
+        self.assertEqual(len(model.outputs), 2)
+        self.assertEqual(model.output_shape, [(None, 1), (None, None)])
 
         self.assertTrue(model.trainable)
         self.assertEqual(len(model.trainable_weights), 6)  # 1x2 embedding, 2(kernel+bias)x1 hidden, 2x1 output
@@ -138,6 +140,23 @@ class TestModel(TestCase):
         hr = self._eval_tensor(hr)
         self.assertAlmostEqual(dcg, self._dcg_index(3), msg="Test dcg for k={}".format(k))
         self.assertAlmostEqual(hr, 1.0, msg="Test hr for k={}".format(k))
+
+    def test_outputs(self):
+        import logging
+        logging.getLogger().setLevel(logging.getLevelName("INFO"))
+
+        x_users = np.array([1, 1, 1, 1, 1,  2, 2, 2, 2, 2])
+        x_items = np.array([1, 2, 3, 4, 5,  1, 2, 3, 4, 5])
+
+        model = MovierecModel(TEST_PARAMS)
+        model.log_summary()
+
+        model_outputs = model.model.predict_on_batch([x_users, x_items])
+
+        # second output is the rank of first output by user
+        output, rank = model_outputs[0], model_outputs[1]
+        self.assertEqual(output.shape, (10, 1))
+        self.assertEqual(rank.shape, (2, 5))
 
     def test_rank_layer(self):
         rank_layer = RankLayer(num_negs_per_pos_train=2, num_negs_per_pos_eval=3, name="rank")

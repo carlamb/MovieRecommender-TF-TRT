@@ -19,11 +19,12 @@ DEFAULT_PARAMS = {
     "beta_1": 0.9,
     "beta_2": 0.999,
 
-    "batch_size": 1200,
-    "eval_batch_size": 300,
-    "epochs": 1, #1000
-    "num_negs_per_pos": 4,
-    "k": 4
+    "batch_size": 300,
+    "batch_size_eval": 300,
+    "num_negs_per_pos": 5,
+    "num_negs_per_pos_eval": 5,
+    "k": 3,
+    "epochs": 10,
 }
 
 
@@ -59,8 +60,8 @@ def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS):
     validation_data_generator = data_pipeline.MovieLensDataGenerator(
         dataset_name,
         validation_df,
-        params["eval_batch_size"],
-        params["num_negs_per_pos"],
+        params["batch_size_eval"],
+        params["num_negs_per_pos_eval"],
         extra_data_df=train_df,  # Use train to avoid positives from train in validation.
         shuffle=False)
 
@@ -71,8 +72,6 @@ def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS):
     movierec_model = MovierecModel(params, output_model_file)
     movierec_model.log_summary()
 
-    # set learning phase to 'train' and train model
-    K.set_learning_phase(1)
     movierec_model.fit_generator(train_data_generator, validation_data_generator, params["epochs"])
 
     movierec_model.save()
