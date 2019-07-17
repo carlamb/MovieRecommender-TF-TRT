@@ -28,7 +28,7 @@ DEFAULT_PARAMS = {
 }
 
 
-def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS):
+def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS, verbose=1):
     """
     Create dataset train and validation generators, create and compile model and train the model.
     Parameters
@@ -42,6 +42,8 @@ def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS):
         Output file to save the Keras model (HDF5 format).
     params : dict of param names (str) to values (any type)
        Dictionary of model hyper parameters. Default: `DEFAULT_PARAMS`
+    verbose : int
+        Verbosity mode.
 
     """
 
@@ -69,7 +71,7 @@ def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS):
     params["num_users"] = train_data_generator.num_users
     params["num_items"] = train_data_generator.num_items
 
-    movierec_model = MovierecModel(params, output_model_file)
+    movierec_model = MovierecModel(params, output_model_file, verbose)
     movierec_model.log_summary()
 
     movierec_model.fit_generator(train_data_generator, validation_data_generator, params["epochs"])
@@ -86,8 +88,14 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--data-dir', type=str, default='data',
                         help='Dataset directory to read ratings data from')
     parser.add_argument('-o', '--output-model-file', type=str, default='models/movierec_model.h5',
-                        help='Output file to save the Keras model')
-    # TODO `params` arg
+                        help='Output file to save the Keras model.')
+    parser.add_argument('-l', '--log-level', type=str, default='INFO',
+                        help='Log level (default: INFO).')
+    # TODO Allow `params` as argument
+
     args = parser.parse_args()
+    logging.getLogger().setLevel(logging.getLevelName(args.log_level))
+    logging.info("Starting training with params: {}".format(DEFAULT_PARAMS))
+    train(args.dataset_name, args.data_dir, args.output_model_file, DEFAULT_PARAMS, logging.getLogger().level)
 
     train(args.dataset_name, args.data_dir, args.output_model_file)

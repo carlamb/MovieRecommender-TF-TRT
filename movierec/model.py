@@ -50,17 +50,18 @@ class MovierecModel(object):
     Movie Recommendation Model
     """
 
-    def __init__(self, params=DEFAULT_PARAMS, output_model_file="models/movirec.h5", ):
+    def __init__(self, params=DEFAULT_PARAMS, output_model_file="models/movirec.h5", verbose=1):
         """
         Create a movie recommendation model.
 
         Parameters
         ----------
-        output_model_file : str or `os.path`
-            Output file to save the Keras model (HDF5 format).
         params : dict of param names (str) to values (any type)
            Dictionary of model hyper parameters. Default: `DEFAULT_PARAMS`
-
+        output_model_file : str or `os.path`
+            Output file to save the Keras model (HDF5 format).
+        verbose : int
+            Verbosity mode.
 
         """
         # Get params and perform some basic verifications
@@ -114,6 +115,7 @@ class MovierecModel(object):
             pass
         self._output_model_file = output_model_file
         self._output_model_checkpoints = os.path.join(model_dir, "checkpoint.{epoch:02d}-{val_loss:.2f}.hdf5")
+        self.verbose = verbose
 
         # Build model and compile
         self.model = self.build_mlp_model()
@@ -231,14 +233,16 @@ class MovierecModel(object):
         """
         # Callbacks
         callbacks = [
-            EarlyStopping(monitor=METRIC_VAL_DCG, mode='max', restore_best_weights=True),
+            EarlyStopping(monitor=METRIC_VAL_DCG, mode='max', restore_best_weights=True, patience=3,
+                          verbose=self.verbose),
             ModelCheckpoint(self._output_model_checkpoints, monitor=METRIC_VAL_DCG, save_best_only=True,
-                            save_weights_only=False, mode='max')
+                            save_weights_only=False, mode='max', verbose=self.verbose)
         ]
         return self.model.fit_generator(generator=train_data_generator,
                                         validation_data=validation_data_generator,
                                         epochs=epochs,
-                                        callbacks=callbacks)
+                                        callbacks=callbacks,
+                                        verbose=self.verbose)
 
 
 class RankLayer(Layer):
