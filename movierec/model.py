@@ -33,9 +33,9 @@ DEFAULT_PARAMS = {  # Just some toy params to test the code
     "k": 3
 }
 
-ADAM = "adam"
-SGD = "sgd"
-OPTIMIZERS = [ADAM, SGD]
+ADAM_NAME = "adam"
+SGD_NAME = "sgd"
+OPTIMIZERS = [ADAM_NAME, SGD_NAME]
 
 HIT_RATE = "hr"
 DCG = "dcg"
@@ -67,7 +67,9 @@ class MovierecModel(object):
             Verbosity mode.
 
         """
-        # Get params and perform some basic verifications
+        # Save params into internal attributes and perform some basic verifications.
+        # Dict params` is not saved to encourage detection of common input errors (missing keys, wrong values)
+        # as early as possible.
         self._num_users = params["num_users"]
         self._num_items = params["num_items"]
         self._layers_sizes = params["layers_sizes"]
@@ -82,8 +84,8 @@ class MovierecModel(object):
         if self._optimizer not in OPTIMIZERS:
             raise NotImplementedError("Optimizer {} is not implemented.".format(params["optimizer"]))
         self._lr = params["lr"]
-        self._beta_1 = params.get("beta_1", 0.9) # optional, for Adam optimizer, default from paper
-        self._beta_2 = params.get("beta_2", 0.999) # optional, for Adam optimizer, default from paper
+        self._beta_1 = params.get("beta_1", 0.9)  # optional, for Adam optimizer, default from paper
+        self._beta_2 = params.get("beta_2", 0.999)  # optional, for Adam optimizer, default from paper
         self._batch_size = params["batch_size"]
         self._num_negs_per_pos = params["num_negs_per_pos"]
         if self._num_negs_per_pos <= 0:
@@ -122,7 +124,8 @@ class MovierecModel(object):
         # serialize params for later (should just be used to save to file)
         self._serialized_params = json.dumps(params)
 
-        self._output_model_checkpoints = os.path.join(output_dir, "checkpoint.{epoch:02d}-{val_loss:.2f}.h5")
+        self._output_model_checkpoints = os.path.join(
+            output_dir, "{}-checkpoint-{{epoch:02d}}-{{val_loss:.2f}}.h5".format(model_name))
         self.verbose = verbose
 
         # Build model and compile
@@ -193,9 +196,9 @@ class MovierecModel(object):
 
     def compile_model(self):
         # Set optimizer
-        if self._optimizer == ADAM:
+        if self._optimizer == ADAM_NAME:
             optimizer = Adam(self._lr, self._beta_1, self._beta_2)
-        elif self._optimizer == SGD:
+        elif self._optimizer == SGD_NAME:
             optimizer = SGD(self._lr)
         else:
             raise NotImplementedError("Optimizer {} is not implemented.".format(self._optimizer))
@@ -220,6 +223,14 @@ class MovierecModel(object):
         return os.path.join(output_dir, "{}_params.json".format(model_name))
 
     def get_pred_rank(self):
+        """
+        Get output of rank layer.
+
+        Returns
+        -------
+        output : `tf.Tensor`
+            Output of rank layer.
+        """
         return self.model.get_layer(OUTPUT_RANK).output
 
     def log_summary(self):
@@ -330,7 +341,7 @@ class RankLayer(Layer):
         self.num_negs_per_pos_eval = num_negs_per_pos_eval
         self._uses_learning_phase = True
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         inputs = K.ops.convert_to_tensor(inputs)
 
         num_negs_per_pos = K.in_train_phase(self.num_negs_per_pos_train, self.num_negs_per_pos_eval)
@@ -347,7 +358,7 @@ class RankLayer(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-def hit_rate(y_true, y_pred, k, pred_rank_idx):
+def hit_rate(y_true, _, k, pred_rank_idx):
     """
     Compute HR (Hit Rate) in batch considering only the top 'k' items in the rank.
 
@@ -356,8 +367,8 @@ def hit_rate(y_true, y_pred, k, pred_rank_idx):
     y_true : `tf.Tensor` (or `np.array`)
         True labels. For every (`num_negs_per_pos` + 1) items, there should be only one positive class (+1)
         and the rest are negative (0).
-    y_pred : `tf.Tensor` (or `np.array`)
-        Predicted logits. Ignored argument that will be passed by keras metrics, but this method will only
+    _
+        Placeholder for y_pred. Ignored argument that will be passed by keras metrics, but this method will only
         use pred_rank_idx.
     k : int
         Number of top elements to consider for the metric computation.
@@ -374,7 +385,7 @@ def hit_rate(y_true, y_pred, k, pred_rank_idx):
     return K.mean(hits_per_user, axis=-1)
 
 
-def discounted_cumulative_gain(y_true, y_pred, k, pred_rank_idx):
+def discounted_cumulative_gain(y_true, _, k, pred_rank_idx):
     """
     Compute DCG (Discounted Cumulative Gain) considering only the top 'k' items in the rank.
 
@@ -383,8 +394,8 @@ def discounted_cumulative_gain(y_true, y_pred, k, pred_rank_idx):
     y_true : `tf.Tensor` (or `np.array`)
         True labels. For every (`num_negs_per_pos` + 1) items, there should be only one positive class (+1)
         and the rest are negative (0).
-    y_pred : `tf.Tensor` (or `np.array`)
-        Predicted logits. Ignored argument that will be passed by keras metrics, but this method will only
+    _
+        Placeholder for y_pred. Ignored argument that will be passed by keras metrics, but this method will only
         use pred_rank_idx.
     k : int
         Number of top elements to consider for the metric computation.
@@ -442,4 +453,3 @@ def _get_hits_per_user(y_true, pred_rank_idx, k):
     # determine whether the label is in top k of ranking or not
     hits_per_user = K.cast(K.less(idx_label_in_pred_rank, k), "float32")
     return hits_per_user, idx_label_in_pred_rank
-
