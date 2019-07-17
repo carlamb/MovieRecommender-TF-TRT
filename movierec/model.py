@@ -247,8 +247,8 @@ class MovierecModel(object):
 
 class RankLayer(Layer):
 
-    def __init__(self, num_negs_per_pos_train, num_negs_per_pos_eval, name):
-        super(RankLayer, self).__init__(name=name)
+    def __init__(self, num_negs_per_pos_train, num_negs_per_pos_eval, name, **kwargs):
+        super(RankLayer, self).__init__(name=name, **kwargs)
         self.num_negs_per_pos_train = num_negs_per_pos_train
         self.num_negs_per_pos_eval = num_negs_per_pos_eval
         self._uses_learning_phase = True
@@ -262,6 +262,12 @@ class RankLayer(Layer):
         y_pred_per_user = K.reshape(inputs, (-1, num_negs_per_pos + 1))
         _, indices = K.nn.top_k(y_pred_per_user, K.shape(y_pred_per_user)[1], sorted=True)
         return indices
+
+    def get_config(self):
+        config = {'num_negs_per_pos_train': self.num_negs_per_pos_train,
+                  'num_negs_per_pos_eval': self.num_negs_per_pos_eval}
+        base_config = super(RankLayer, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
 
 
 def hit_rate(y_true, y_pred, k, pred_rank_idx):
