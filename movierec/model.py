@@ -249,9 +249,6 @@ class RankLayer(Layer):
         self.num_negs_per_pos_eval = num_negs_per_pos_eval
         self._uses_learning_phase = True
 
-    def build(self, input_shape):
-        self.built = True
-
     def call(self, inputs):
         inputs = K.ops.convert_to_tensor(inputs)
 
