@@ -1,6 +1,6 @@
 import tensorflow.python.keras.backend as K
 import math
-from movierec.model import _dcg_hr, discounted_cumulative_gain, hit_rate, MovierecModel, RankLayer
+from movierec.model import discounted_cumulative_gain, hit_rate, MovierecModel, RankLayer
 import numpy as np
 import tensorflow as tf
 from unittest import TestCase
@@ -67,25 +67,25 @@ class TestModel(TestCase):
             return tensor.eval()
 
     def test_hit_rate(self):
-        # last elem in each row is expected label (should be max in pred)
+        # item with index 3 in each row is the expected label (should be max in pred)
         y_true = np.array([[0, 0, 0, 1],
                            [0, 0, 0, 1]])
-        y_pred = np.array([[0.1, 0.2, 0.9, 0.5],
-                           [0.9, 0.8, 0.7, 0.6]], dtype=np.float32)
-        num_negs_per_pos = 3
+        # rank of items (index 3 is the real positive)
+        rank_output = np.array([[2, 3, 1, 0],
+                               [0, 1, 2, 3]], dtype=np.int32)
 
         k_to_hr = {
-            # for top 0, top 1: no hit: dcg=0
+            # for top 0, top 1: no hit
             0: 0.0,
             1: 0.0,
-            # top 2, top 3: first row is hit, second is not
+            # top 2, top 3: first row is hit ('3' is in rank 2), second is not
             2: 0.5,
             3: 0.5,
             # k = 4: all in top
             4: 1
         }
         for k, expected_hr in k_to_hr.items():
-            avg_hr = self._eval_tensor(hit_rate(y_true, y_pred, num_negs_per_pos, k=k))
+            avg_hr = self._eval_tensor(hit_rate(y_true, None, k=k, pred_rank_idx=rank_output))
             self.assertAlmostEqual(avg_hr, expected_hr, msg="Test for k={}".format(k))
 
     def _dcg_index(self, index):
@@ -97,7 +97,8 @@ class TestModel(TestCase):
                            [0, 0, 0, 1]])
         y_pred = np.array([[0.1, 0.2, 0.9, 0.5],
                            [0.9, 0.8, 0.7, 0.6]], dtype=np.float32)
-        num_negs_per_pos = 3
+
+        pred_rank_idx = RankLayer(3, 3, "rank").call(y_pred)
 
         # compute individual DCG. In first row label is ranked 1 (0-indexed) and in row 2, 3
         dcg0 = self._dcg_index(1)
@@ -114,32 +115,38 @@ class TestModel(TestCase):
             4: (dcg0 + dcg1) / 2.
         }
         for k, expected_dcg in k_to_dcg.items():
-            dcg = self._eval_tensor(discounted_cumulative_gain(y_true, y_pred, num_negs_per_pos, k=k))
+            dcg = self._eval_tensor(discounted_cumulative_gain(y_true, y_pred, k, pred_rank_idx))
             self.assertAlmostEqual(dcg, expected_dcg, msg="Test for k={}".format(k))
 
     def test_dgc_hr_on_ties(self):
         # last elem in each row is expected label (should be max in pred)
         y_true = np.array([[0, 0, 0, 1]])
         y_pred = np.array([[0.9, 0.55, 0.55, 0.55]], dtype=np.float32)
-        num_negs_per_pos = 3
+
+        pred_rank_idx = RankLayer(3, 3, "rank").call(y_pred)
 
         # when there are ties, both DCG and Hit Rate should perform the same method (include or exclude)
 
         # for top 0, top 1: no hit
         # top 2, top 3: is a tie, but since index is last, gets excluded from top K
         for k in (0, 1, 2, 3):
-            dcg, hr = _dcg_hr(y_true, y_pred, num_negs_per_pos, k=k)
-            dcg = self._eval_tensor(dcg)
+            hr = hit_rate(y_true, y_pred, k, pred_rank_idx)
             hr = self._eval_tensor(hr)
-            self.assertEqual(dcg, 0.0, msg="Test dcg for k={}".format(k))
             self.assertEqual(hr, 0.0, msg="Test hr for k={}".format(k))
 
+            dcg = discounted_cumulative_gain(y_true, y_pred, k, pred_rank_idx)
+            dcg = self._eval_tensor(dcg)
+            self.assertEqual(dcg, 0.0, msg="Test dcg for k={}".format(k))
+
         # only top 4 should count the hit
-        dcg, hr = _dcg_hr(y_true, y_pred, num_negs_per_pos, k=4)
-        dcg = self._eval_tensor(dcg)
+        k = 4
+        hr = hit_rate(y_true, y_pred, k, pred_rank_idx)
         hr = self._eval_tensor(hr)
-        self.assertAlmostEqual(dcg, self._dcg_index(3), msg="Test dcg for k={}".format(k))
         self.assertAlmostEqual(hr, 1.0, msg="Test hr for k={}".format(k))
+
+        dcg = discounted_cumulative_gain(y_true, y_pred, k, pred_rank_idx)
+        dcg = self._eval_tensor(dcg)
+        self.assertAlmostEqual(dcg, self._dcg_index(3), msg="Test dcg for k={}".format(k))
 
     def test_outputs(self):
         import logging

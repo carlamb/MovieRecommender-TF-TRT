@@ -25,11 +25,11 @@ DEFAULT_PARAMS = {  # Just some toy params to test the code
     "beta_1": 0.9,
     "beta_2": 0.999,
 
-    "batch_size": 35,
-    "num_negs_per_pos": 4,
-    "batch_size_eval": 35,
-    "num_negs_per_pos_eval": 4,
-    "k": 4
+    "batch_size": 6,
+    "num_negs_per_pos": 2,
+    "batch_size_eval": 12,
+    "num_negs_per_pos_eval": 5,
+    "k": 3
 }
 
 ADAM = "adam"
@@ -191,16 +191,18 @@ class MovierecModel(object):
             raise NotImplementedError("Optimizer {} is not implemented.".format(self._optimizer))
 
         # Create metrics
-        # TODO: consider _num_negs_per_pos_eval for validation!
-        hit_rate_fn = functools.partial(hit_rate, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
+        hit_rate_fn = functools.partial(hit_rate, k=self._k, pred_rank_idx=self.get_pred_rank())
         hit_rate_fn.__name__ = HIT_RATE
-        dcg_fn = functools.partial(discounted_cumulative_gain, num_negs_per_pos=self._num_negs_per_pos, k=self._k)
+        dcg_fn = functools.partial(discounted_cumulative_gain, k=self._k, pred_rank_idx=self.get_pred_rank())
         dcg_fn.__name__ = DCG
 
         # Compile model
         self.model.compile(optimizer=optimizer,
                            loss={OUTPUT_PRED: "binary_crossentropy"},
                            metrics={OUTPUT_PRED: [hit_rate_fn, dcg_fn]})
+
+    def get_pred_rank(self):
+        return self.model.get_layer(OUTPUT_RANK).output
 
     def log_summary(self):
         self.model.summary(print_fn=logging.info)
@@ -261,7 +263,7 @@ class RankLayer(Layer):
         return indices
 
 
-def hit_rate(y_true, y_pred, num_negs_per_pos, k):
+def hit_rate(y_true, y_pred, k, pred_rank_idx):
     """
     Compute HR (Hit Rate) in batch considering only the top 'k' items in the rank.
 
@@ -271,21 +273,24 @@ def hit_rate(y_true, y_pred, num_negs_per_pos, k):
         True labels. For every (`num_negs_per_pos` + 1) items, there should be only one positive class (+1)
         and the rest are negative (0).
     y_pred : `tf.Tensor` (or `np.array`)
-        Predicted logits.
-    num_negs_per_pos : int
-        Number of negative examples for each positive one (for the same user).
+        Predicted logits. Ignored argument that will be passed by keras metrics, but this method will only
+        use pred_rank_idx.
     k : int
         Number of top elements to consider for the metric computation.
+    pred_rank_idx : `tf.Tensor`(or `np.array`) of integers. Shape: (users per batch, num_negs_per_pos + 1)
+        Tensor representing a ranking. Each row represents a single user and contains (num_negs_per_pos + 1) elements
+        with the ranked indexes of the items in the row.
 
     Returns
     -------
     hit rate: `tf.Tensor`
         A single value tensor with the hit rate for the batch.
     """
-    return _dcg_hr(y_true, y_pred, num_negs_per_pos, k)[1]
+    hits_per_user, _ = _get_hits_per_user(y_true, pred_rank_idx, k)
+    return K.mean(hits_per_user, axis=-1)
 
 
-def discounted_cumulative_gain(y_true, y_pred, num_negs_per_pos, k):
+def discounted_cumulative_gain(y_true, y_pred, k, pred_rank_idx):
     """
     Compute DCG (Discounted Cumulative Gain) considering only the top 'k' items in the rank.
 
@@ -295,59 +300,62 @@ def discounted_cumulative_gain(y_true, y_pred, num_negs_per_pos, k):
         True labels. For every (`num_negs_per_pos` + 1) items, there should be only one positive class (+1)
         and the rest are negative (0).
     y_pred : `tf.Tensor` (or `np.array`)
-        Predicted logits.
-    num_negs_per_pos : int
-        Number of negative examples for each positive one (for the same user).
+        Predicted logits. Ignored argument that will be passed by keras metrics, but this method will only
+        use pred_rank_idx.
     k : int
         Number of top elements to consider for the metric computation.
+    pred_rank_idx : `tf.Tensor`(or `np.array`) of integers. Shape: (users per batch, num_negs_per_pos + 1)
+        Tensor representing a ranking. Each row represents a single user and contains (num_negs_per_pos + 1) elements
+        with the ranked indexes of the items in the row.
 
     Returns
     -------
-    hit rate: `tf.Tensor`
-        A single value tensor with the average Hit Rate on the top k for the batch.
+    discounted cumulative gain: `tf.Tensor`
+        A single value tensor with the average Discounted Cumulative Gain on the top k for the batch.
     """
-    return _dcg_hr(y_true, y_pred, num_negs_per_pos, k)[0]
+    hits_per_user, idx_label_in_pred_rank = _get_hits_per_user(y_true, pred_rank_idx, k)
+
+    # compute dcg for each item, but make 0.0 the entries where position is > k (only consider top k)
+    dcg_per_user = K.math_ops.log(2.) / K.math_ops.log(K.cast(idx_label_in_pred_rank, "float32") + 2)
+    dcg_per_user *= hits_per_user
+
+    return K.mean(dcg_per_user, axis=-1)
 
 
-def _dcg_hr(y_true, y_pred, num_negs_per_pos, k):
+def _get_hits_per_user(y_true, pred_rank_idx, k):
     """
-    Compute DCG (Discounted Cumulative Gain) and Hit Rate considering only the top 'k' items in the rank.
+    Compute the position of the label in the predicted ranking and whether is a hit on top k or not.
 
     Parameters
     ----------
     y_true : `tf.Tensor` (or `np.array`)
         True labels. For every (`num_negs_per_pos` + 1) items, there should be only one positive class (+1)
         and the rest are negative (0).
-    y_pred : `tf.Tensor` (or `np.array`)
-        Predicted logits.
-    num_negs_per_pos : int
-        Number of negative examples for each positive one (for the same user).
+    pred_rank_idx : `tf.Tensor`(or `np.array`) of integers. Shape: (users per batch, num_negs_per_pos + 1)
+        Tensor representing a ranking. Each row represents a single user and contains (num_negs_per_pos + 1) elements
+        with the ranked indexes of the items in the row.
     k : int
         Number of top elements to consider for the metric computation.
 
     Returns
     -------
-    hit rate: Tuple of 2 `tf.Tensor`
-        dcg: A single value tensor with the average DCG on the top k for the batch.
-        hr: A single value tensor with the average Hit Rate on the top k for the batch.
+    Tuple: (hits_per_user, idx_label_in_pred_rank)
+        hits_per_user : `tf.Tensor` with shape (users per batch, )
+            Tensor of floats where elements are 1.0 if there is a hit (label is in top k) for that user, or
+            0.0 otherwise.
+        idx_label_in_pred_rank : `tf.Tensor` with shape (users per batch, )
+            Tensor of integers with the index of the label in the predicted rank.
     """
-    # Get predictions and labels per user
-    y_pred_per_user = K.reshape(y_pred, (-1, num_negs_per_pos + 1))
-    labels_per_user = K.reshape(y_true, (-1, num_negs_per_pos + 1))
-    labels_per_user = K.math_ops.argmax(labels_per_user, axis=-1, output_type=K.dtypes_module.int32)
 
-    # get rank indices per user
-    _, indices = K.nn.top_k(y_pred_per_user, K.shape(y_pred_per_user)[1], sorted=True)
+    # Get the index of the positive label per user.
+    # Assume that every user has num_neg_per_pos negatives (zeros) and one positive (1).
+    idx_label_per_user = K.reshape(y_true, K.shape(pred_rank_idx))
+    idx_label_per_user = K.math_ops.argmax(idx_label_per_user, axis=-1, output_type="int32")
 
-    # get the position of the expecgtedvlabel in the ranked list
-    pos_label = K.array_ops.where(K.equal(indices, K.reshape(labels_per_user, (-1, 1))))[:, -1]
+    # get the position of the expected label in the ranked list and compute whether is a hit in top k
+    idx_label_in_pred_rank = K.array_ops.where(K.equal(pred_rank_idx, K.reshape(idx_label_per_user, (-1, 1))))[:, -1]
 
-    # compute dcg for each item, but make 0.0 the entries where position is > k (only consider top k)
-    dcg_per_user = K.math_ops.log(2.) / K.math_ops.log(K.cast(pos_label, K.dtypes_module.float32) + 2)
-    hits_per_user = K.cast(K.less(pos_label, k), K.dtypes_module.float32)
-    dcg_per_user *= hits_per_user
+    # determine whether the label is in top k of ranking or not
+    hits_per_user = K.cast(K.less(idx_label_in_pred_rank, k), "float32")
+    return hits_per_user, idx_label_in_pred_rank
 
-    # return mean dcg and hit rate
-    dcg = K.mean(dcg_per_user, axis=-1)
-    hr = K.mean(hits_per_user, axis=-1)
-    return dcg, hr
