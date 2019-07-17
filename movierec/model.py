@@ -185,9 +185,9 @@ class MovierecModel(object):
 
     def compile_model(self):
         # Set optimizer
-        if self._optimizer is ADAM:
+        if self._optimizer == ADAM:
             optimizer = Adam(self._lr, self._beta_1, self._beta_2)
-        elif self._optimizer is SGD:
+        elif self._optimizer == SGD:
             optimizer = SGD(self._lr)
         else:
             raise NotImplementedError("Optimizer {} is not implemented.".format(self._optimizer))
