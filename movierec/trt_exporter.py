@@ -1,10 +1,10 @@
 """ Export models. """
 
 import logging
+from model import MovierecModel
+import os
 import tensorflow as tf
 from tensorflow.python.keras import backend as K
-from tensorflow.python.keras.models import load_model
-import os
 from tensorflow.python.framework import graph_io
 
 # For versions older than 1.14, use graph_utils from 1.14 (locally downloaded)
@@ -17,7 +17,7 @@ else:
     import tensorflow.compat.v1.graph_util as tf_graph_util
 
 
-def export_keras_model_to_trt(model_file, output_dir):
+def export_keras_model_to_trt(input_dir, model_name, output_dir):
     """
     Export a saved keras model to a TensorRT-compatible model. Steps: load keras model from file,
     freeze and optimize graph for inference, save in TensorRT-compatible format.
@@ -25,8 +25,10 @@ def export_keras_model_to_trt(model_file, output_dir):
 
     Parameters
     ----------
-    model_file : str or `os.path`
-        File name of the keras model to export.
+    input_dir : str or `os.path`
+        Directory of the keras model files.
+    model_name : str
+        Name of the model to load.
     output_dir : str or `os.path`
         Directory to save the exported model.
 
@@ -34,7 +36,7 @@ def export_keras_model_to_trt(model_file, output_dir):
     # set learning phase to 'test'
     K.set_learning_phase(0)
 
-    model = load_model(model_file)
+    model = MovierecModel.load_from_dir(input_dir, model_name).model
 
     with K.get_session() as session:
         graph = session.graph
@@ -55,17 +57,16 @@ def export_keras_model_to_trt(model_file, output_dir):
                 as_text=False)
 
 
-
-
-
 if __name__ == '__main__':
 
     import argparse
     parser = argparse.ArgumentParser(description='Export keras model to TensortRT-compatible format.')
-    parser.add_argument('-i', '--input-model-file', type=str, required=True,
-                        help='Input model file name (absolute or relative path)')
+    parser.add_argument('-m', '--model-name', type=str, required=True,
+                        help='Model name')
+    parser.add_argument('-i', '--input-model-dir', type=str, required=True,
+                        help='Input model directory (absolute or relative path)')
     parser.add_argument('-o', '--output-dir', type=str, required=True,
                         help='Output directory (absolute or relative path)')
     args = parser.parse_args()
 
-    export_keras_model_to_trt(args.input_model_file, args.output_dir)
+    export_keras_model_to_trt(args.input_model_dir, args.model_name, args.output_dir)
