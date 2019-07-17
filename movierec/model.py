@@ -1,6 +1,7 @@
 """ Recommender model and utility methods to train, predict and evaluate """
 
 import functools
+import json
 import logging
 import os
 from tensorflow.python.keras import backend as K
@@ -50,16 +51,18 @@ class MovierecModel(object):
     Movie Recommendation Model
     """
 
-    def __init__(self, params=DEFAULT_PARAMS, output_model_file="models/movirec.h5", verbose=1):
+    def __init__(self, params=DEFAULT_PARAMS, model_name='movierec', output_dir="models/", verbose=1):
         """
         Create a movie recommendation model.
 
         Parameters
         ----------
         params : dict of param names (str) to values (any type)
-           Dictionary of model hyper parameters. Default: `DEFAULT_PARAMS`
-        output_model_file : str or `os.path`
-            Output file to save the Keras model (HDF5 format).
+            Dictionary of model hyper parameters. Default: `DEFAULT_PARAMS`.
+        model_name : str
+            Name of the model. Used in `Model` instance and to save model files.
+        output_dir : str or `os.path`
+            Output directory to save model files.
         verbose : int
             Verbosity mode.
 
@@ -107,14 +110,19 @@ class MovierecModel(object):
                              .format(self._k, self._num_negs_per_pos, self._num_negs_per_pos_eval))
 
         # Create output dir and get file names
-        model_dir = os.path.dirname(output_model_file)
         try:
-            os.makedirs(model_dir)
+            os.makedirs(output_dir)
         except FileExistsError:
             # directory already exists
             pass
-        self._output_model_file = output_model_file
-        self._output_model_checkpoints = os.path.join(model_dir, "checkpoint.{epoch:02d}-{val_loss:.2f}.hdf5")
+        self.name = model_name
+        self._model_weights_path = self.get_model_weights_path(output_dir, model_name)
+        self._params_path = self.get_params_json_path(output_dir, model_name)
+
+        # serialize params for later (should just be used to save to file)
+        self._serialized_params = json.dumps(params)
+
+        self._output_model_checkpoints = os.path.join(output_dir, "checkpoint.{epoch:02d}-{val_loss:.2f}.h5")
         self.verbose = verbose
 
         # Build model and compile
@@ -203,6 +211,14 @@ class MovierecModel(object):
                            loss={OUTPUT_PRED: "binary_crossentropy"},
                            metrics={OUTPUT_PRED: [hit_rate_fn, dcg_fn]})
 
+    @staticmethod
+    def get_model_weights_path(output_dir, model_name):
+        return os.path.join(output_dir, "{}_weights.h5".format(model_name))
+
+    @staticmethod
+    def get_params_json_path(output_dir, model_name):
+        return os.path.join(output_dir, "{}_params.json".format(model_name))
+
     def get_pred_rank(self):
         return self.model.get_layer(OUTPUT_RANK).output
 
@@ -210,9 +226,70 @@ class MovierecModel(object):
         self.model.summary(print_fn=logging.info)
 
     def save(self):
-        # Save model
-        self.model.save(self._output_model_file)
-        logging.info('Keras model saved to {}'.format(self._output_model_file))
+        """
+        Save params and weights to files.
+
+        """
+        # Save model weights and serialized model class instance.
+        self.model.save_weights(self._model_weights_path)
+        logging.info('Model weights saved to: {}'.format(self._model_weights_path))
+        with open(self._params_path, 'w') as f_out:
+            f_out.write(self._serialized_params)
+        logging.info('Model params saved to: {}'.format(self._params_path))
+
+    @staticmethod
+    def load_from_dir(model_dir, model_name, verbose=1):
+        """
+        Load `MovierecModel` from directory and model name. File names are built like when saving in a
+        `MovierecModel` instance.
+
+        Parameters
+        ----------
+        model_dir : str or `os.path`
+            Directory where model files are. Also used as output directory to create the MovierecModel object,
+            in case `save` is called.
+        model_name : str or `os.path`
+            Model name, used to build model file name. Also used to create a MovierecModel object, in case `save`
+            is called.
+        verbose : int
+            Verbosity level.
+
+        Returns
+        -------
+        MovierecModel object.
+        """
+        params_path = MovierecModel.get_params_json_path(model_dir, model_name)
+        weights_path = MovierecModel.get_model_weights_path(model_dir, model_name)
+        return MovierecModel.load_from_files(params_path, weights_path, model_dir, model_name, verbose)
+
+    @staticmethod
+    def load_from_files(params_path, weights_path, output_model_dir, output_model_name, verbose=1):
+        """
+        Load `MovierecModel` from param and weight files.
+
+        Parameters
+        ----------
+        params_path : str or `os.path`
+            Path of params json file.
+        weights_path : str or `os.path`
+            Path of weights h5 file.
+        output_model_dir : str or `os.path`
+            Output directory, needed to create a MovierecModel object, in case `save` is called.
+        output_model_name : str or `os.path`
+            Model name, needed to create a MovierecModel object, in case `save` is called.
+        verbose : int
+            Verbosity level.
+
+        Returns
+        -------
+        MovierecModel object.
+        """
+        with open(params_path, 'r') as f_in:
+            params = json.load(f_in)
+            print(params)
+        movierec = MovierecModel(params, output_model_dir, output_model_name, verbose)
+        movierec.model.load_weights(weights_path)
+        return movierec
 
     def fit_generator(self, train_data_generator, validation_data_generator, epochs):
         """

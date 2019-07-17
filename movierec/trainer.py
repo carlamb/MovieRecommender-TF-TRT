@@ -4,7 +4,6 @@ import data_pipeline
 import logging
 from model import MovierecModel
 import os
-from tensorflow.python.keras import backend as K
 
 DEFAULT_PARAMS = {
     # model:
@@ -28,18 +27,20 @@ DEFAULT_PARAMS = {
 }
 
 
-def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS, verbose=1):
+def train(model_name, dataset_name, data_dir, output_dir, params=DEFAULT_PARAMS, verbose=1):
     """
     Create dataset train and validation generators, create and compile model and train the model.
     Parameters
     ----------
+    model_name : str
+        Name of the model to train (used in model object and model files to save).
     dataset_name : str
-            Movielens dataset name. Must be one of MOVIELENS_DATASET_NAMES.
+        Movielens dataset name. Must be one of MOVIELENS_DATASET_NAMES.
     data_dir : str or os.path
         Dataset directory to read ratings data from. The file to read from the directory will be:
         data_dir/dataset_name/data_pipeline.RATINGS_FILE_NAME[dataset_name].
-    output_model_file : str or `os.path`
-        Output file to save the Keras model (HDF5 format).
+    output_dir : str or `os.path`
+        Output file directory to save model files.
     params : dict of param names (str) to values (any type)
        Dictionary of model hyper parameters. Default: `DEFAULT_PARAMS`
     verbose : int
@@ -71,7 +72,7 @@ def train(dataset_name, data_dir, output_model_file, params=DEFAULT_PARAMS, verb
     params["num_users"] = train_data_generator.num_users
     params["num_items"] = train_data_generator.num_items
 
-    movierec_model = MovierecModel(params, output_model_file, verbose)
+    movierec_model = MovierecModel(params, model_name, output_dir, verbose)
     movierec_model.log_summary()
 
     movierec_model.fit_generator(train_data_generator, validation_data_generator, params["epochs"])
@@ -83,12 +84,14 @@ if __name__ == '__main__':
 
     import argparse
     parser = argparse.ArgumentParser(description='Train a Keras model.')
+    parser.add_argument('-m', '--model-name', type=str, required=True,
+                        help='Model name (to save output files).')
     parser.add_argument('-n', '--dataset-name', type=str, required=True,
                         help='Movielens dataset name.')
-    parser.add_argument('-d', '--data-dir', type=str, default='data',
+    parser.add_argument('-d', '--data-dir', type=str, default='data/',
                         help='Dataset directory to read ratings data from')
-    parser.add_argument('-o', '--output-model-file', type=str, default='models/movierec_model.h5',
-                        help='Output file to save the Keras model.')
+    parser.add_argument('-o', '--output-dir', type=str, default='models',
+                        help='Output dir to save model files.')
     parser.add_argument('-l', '--log-level', type=str, default='INFO',
                         help='Log level (default: INFO).')
     # TODO Allow `params` as argument
@@ -96,6 +99,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     logging.getLogger().setLevel(logging.getLevelName(args.log_level))
     logging.info("Starting training with params: {}".format(DEFAULT_PARAMS))
-    train(args.dataset_name, args.data_dir, args.output_model_file, DEFAULT_PARAMS, logging.getLogger().level)
-
-    train(args.dataset_name, args.data_dir, args.output_model_file)
+    train(args.model_name, args.dataset_name, args.data_dir, args.output_dir, DEFAULT_PARAMS, logging.getLogger().level)
