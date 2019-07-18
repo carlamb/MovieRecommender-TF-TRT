@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'movierec')))
+
 from movierec.data_pipeline import load_ratings_train_test_sets, MovieLensDataGenerator
 
 from unittest import TestCase
@@ -17,7 +21,7 @@ class TestDataPipeline(TestCase):
         mock_path_exists.return_value = False
         self.assertRaises(FileNotFoundError, load_ratings_train_test_sets, 'ml-100k', 'MOCK TEST PATH', False)
 
-    @patch('movierec.data_pipeline.pd.read_csv')
+    @patch('movierec.util.movielens_utils.pd.read_csv')
     @patch('movierec.data_pipeline.os.path.exists')
     def test_load_ratings_train_test_sets(self, mock_path_exists, mock_read_csv):
         mock_path_exists.return_value = True
@@ -43,7 +47,7 @@ class TestDataPipeline(TestCase):
         pd.testing.assert_frame_equal(test, expected_test)
 
     @patch('movierec.data_pipeline.download_movielens')
-    @patch('movierec.data_pipeline.pd.read_csv')
+    @patch('movierec.util.movielens_utils.pd.read_csv')
     @patch('movierec.data_pipeline.os.path.exists')
     def test_load_ratings_train_test_sets_download(self, mock_path_exists, mock_read_csv, mock_download_movielens):
         # prepare mocks

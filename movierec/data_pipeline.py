@@ -3,51 +3,14 @@
 import logging
 import numpy as np
 import os
-import pandas as pd
 import tempfile
+from tensorflow.python.keras.utils import Sequence
 from urllib.request import urlretrieve
+import util.movielens_utils as ml
 import zipfile
 
-from tensorflow.python.keras.utils import Sequence
-
-# more info http://files.grouplens.org/datasets/movielens/ml-1m-README.txt
-MOVIELENS_URL_FORMAT = 'http://files.grouplens.org/datasets/movielens/{}.zip'
-
-ML_100K = 'ml-100k'
-ML_1M = 'ml-1m'
-ML_20M = 'ml-20m'
-MOVIELENS_DATASET_NAMES = [ML_100K, ML_1M, ML_20M]
 
 ZIP_EXTENSION = '.zip'
-
-RATINGS_FILE_NAME = {
-    ML_100K: 'u.data',
-    ML_1M: 'ratings.dat',
-    ML_20M: 'ratings.csv'
-}
-SEPARATOR = {
-    ML_100K: '\t',
-    ML_1M: '::',
-    ML_20M: ','
-}
-
-HAS_HEADER = {
-    ML_100K: False,
-    ML_1M: False,
-    ML_20M: True
-}
-
-NUM_USERS = {
-    ML_100K: 943,
-    ML_1M: 6040,
-    ML_20M: 138493
-}
-
-NUM_ITEMS = {
-    ML_100K: 1682,
-    ML_1M: 3952,
-    ML_20M: 27278
-}
 
 COL_USER_ID = 'userId'
 COL_ITEM_ID = 'itemId'
@@ -82,13 +45,13 @@ class MovieLensDataGenerator(Sequence):
             generator.
         shuffle : bool
             Whether to shuffle the data_df between epochs. Note that the negative examples are randomly generated for
-            every batch, so, even when `shuffle` is False, the batches will be different every time (positives will be equal,
-            but negatives will be different).
+            every batch, so, even when `shuffle` is False, the batches will be different every time (positives will be
+            equal, but negatives will be different).
         """
 
-        if dataset_name not in MOVIELENS_DATASET_NAMES:
+        if dataset_name not in ml.MOVIELENS_DATASET_NAMES:
             raise ValueError('Invalid dataset name {}. Must be one of {}'
-                             .format(dataset_name, ', '.join(MOVIELENS_DATASET_NAMES)))
+                             .format(dataset_name, ', '.join(ml.MOVIELENS_DATASET_NAMES)))
 
         if negatives_per_positive <= 0:
             raise ValueError("negatives_per_positive must be > 0, found {}".format(negatives_per_positive))
@@ -98,8 +61,8 @@ class MovieLensDataGenerator(Sequence):
                              "negatives_per_positive={}".format(batch_size, negatives_per_positive))
 
         self._dataset_name = dataset_name
-        self._num_users = NUM_USERS[dataset_name]
-        self._num_items = NUM_ITEMS[dataset_name]
+        self._num_users = ml.NUM_USERS[dataset_name]
+        self._num_items = ml.NUM_ITEMS[dataset_name]
         self.data = data_df
         self.extra_data = extra_data_df
         self.batch_size = batch_size
@@ -211,13 +174,13 @@ def download_movielens(dataset_name, output_dir):
         Dataset path (folder name will be output_dir/dataset_name)
     """
 
-    if dataset_name not in MOVIELENS_DATASET_NAMES:
+    if dataset_name not in ml.MOVIELENS_DATASET_NAMES:
         raise ValueError('Invalid dataset name {}. Must be one of {}'
-                         .format(dataset_name, ', '.join(MOVIELENS_DATASET_NAMES)))
+                         .format(dataset_name, ', '.join(ml.MOVIELENS_DATASET_NAMES)))
 
     with tempfile.TemporaryDirectory() as temp_dir:  # automatically cleaned up after this context
         # download dataset zip file into temporary folder
-        dataset_url = MOVIELENS_URL_FORMAT.format(dataset_name)
+        dataset_url = ml.MOVIELENS_URL_FORMAT.format(dataset_name)
         dataset_file_name = os.path.join(temp_dir, dataset_name + ZIP_EXTENSION)
 
         logging.info('Downloading Movielens {}'.format(dataset_url))
@@ -257,16 +220,16 @@ def load_ratings_train_test_sets(dataset_name, data_dir, download=True):
 
     Returns
     -------
-        (train, test) : (DataFrame)
-            Dataset split into 2 DataFrames with columns COL_USER_ID, COL_ITEM_ID, COL_RATING.
+        (train, validation, test) : (DataFrame)
+            Dataset split into 3 DataFrames with columns COL_USER_ID, COL_ITEM_ID, COL_RATING.
     """
 
-    if dataset_name not in MOVIELENS_DATASET_NAMES:
+    if dataset_name not in ml.MOVIELENS_DATASET_NAMES:
         raise ValueError('Invalid dataset name {}. Must be one of {}'
-                         .format(dataset_name, ', '.join(MOVIELENS_DATASET_NAMES)))
+                         .format(dataset_name, ', '.join(ml.MOVIELENS_DATASET_NAMES)))
 
     # file to load: download or raise error if it does not exist
-    ratings_file_path = os.path.join(data_dir, dataset_name, RATINGS_FILE_NAME[dataset_name])
+    ratings_file_path = ml.get_ratings_path(data_dir, dataset_name)
     if not os.path.exists(ratings_file_path):
         if not download:
             raise FileNotFoundError('{} not found. Download the dataset first or set param download=True.'
@@ -279,19 +242,7 @@ def load_ratings_train_test_sets(dataset_name, data_dir, download=True):
 
     # Load dataset in a dataframe
     # Since movielens datasets are relatively small, load and manage all in Pandas. Otherwise, this could be optimized.
-    ratings_df = pd.read_csv(filepath_or_buffer=ratings_file_path,
-                             sep=SEPARATOR[dataset_name],
-                             header=0 if HAS_HEADER[dataset_name] else None,
-                             encoding='utf-8',
-                             engine='python',  # set python engine to use regex separators
-                             # only use 3 columns:
-                             usecols=(0, 1, 2),
-                             names=(COL_USER_ID, COL_ITEM_ID, COL_RATING),
-                             dtype={COL_USER_ID: np.int32, COL_ITEM_ID: np.int32, COL_ITEM_ID: np.float32})
-
-    # Users and ratings are 1-indexed. Make them 0-indexed
-    ratings_df[COL_USER_ID] = ratings_df[COL_USER_ID] - 1
-    ratings_df[COL_ITEM_ID] = ratings_df[COL_ITEM_ID] - 1
+    ratings_df = ml.load_ratings_data(data_dir, dataset_name, COL_USER_ID, COL_ITEM_ID, COL_RATING)
 
     # TODO: log a small summary, check for duplicates?
 
