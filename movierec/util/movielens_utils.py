@@ -18,8 +18,14 @@ RATINGS_FILE_NAME = {
     ML_20M: 'ratings.csv'
 }
 
+MOVIES_FILE_NAME = {
+    ML_100K: 'u.item',
+    ML_1M: 'movies.dat',
+    ML_20M: 'movies.csv'
+}
+
 SEPARATOR = {
-    ML_100K: '\t',
+    ML_100K: '\t|\\|',
     ML_1M: '::',
     ML_20M: ','
 }
@@ -43,8 +49,31 @@ NUM_ITEMS = {
 }
 
 
+def get_movies_path(data_dir, dataset_name):
+    return os.path.join(data_dir, dataset_name, MOVIES_FILE_NAME[dataset_name])
+
+
 def get_ratings_path(data_dir, dataset_name):
     return os.path.join(data_dir, dataset_name, RATINGS_FILE_NAME[dataset_name])
+
+
+def load_movies_data(data_dir, dataset_name, col_item_id='itemId', col_movie_title='movieTitle'):
+
+    movies_file_path = get_movies_path(data_dir, dataset_name)
+
+    # Load dataset in a dataframe
+    # Since movielens datasets are relatively small, load and manage all in Pandas. Otherwise, this could be optimized.
+    movies_df = pd.read_csv(filepath_or_buffer=movies_file_path,
+                            sep=SEPARATOR[dataset_name],
+                            header=0 if HAS_HEADER[dataset_name] else None,
+                            engine='python',  # set python engine to use regex separators
+                            # only use first 2 columns:
+                            usecols=(0, 1),
+                            names=(col_item_id, col_movie_title),
+                            dtype={col_item_id: np.int32})
+    # Make Ids 0-indexed
+    movies_df[col_item_id] = movies_df[col_item_id] - 1
+    return movies_df
 
 
 def load_ratings_data(data_dir, dataset_name, col_user_id='userId', col_item_id='itemId', col_rating='rating'):
