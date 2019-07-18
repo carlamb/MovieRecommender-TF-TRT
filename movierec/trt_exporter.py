@@ -17,11 +17,28 @@ else:
     import tensorflow.compat.v1.graph_util as tf_graph_util
 
 
+CONFIG_FILE_NAME = "config.pbtxt"
+MODEL_VERSION_DIR_NAME = '1'
+MAX_BATCH_SIZE = '1024'
+# some data types mappings from
+# https://docs.nvidia.com/deeplearning/sdk/tensorrt-inference-server-guide/docs/model_configuration.html#section-datatypes
+DATA_TYPES_MAP = {
+    tf.int16: "TYPE_INT16",
+    tf.int32: "TYPE_INT32",
+    tf.int64: "TYPE_INT64",
+    tf.float16: "TYPE_FP16",
+    tf.float32: "TYPE_FP32",
+    tf.float64: "TYPE_FP64",
+}
+
+
 def export_keras_model_to_trt(input_dir, model_name, output_dir):
     """
     Export a saved keras model to a TensorRT-compatible model. Steps: load keras model from file,
     freeze and optimize graph for inference, save in TensorRT-compatible format.
 
+    See:
+    https://docs.nvidia.com/deeplearning/sdk/tensorrt-inference-server-guide/docs/model_repository.html#tensorflow-models
 
     Parameters
     ----------
@@ -52,9 +69,61 @@ def export_keras_model_to_trt(input_dir, model_name, output_dir):
             # dir structure and name as expected by TensorRT
             graph_io.write_graph(
                 graph_or_graph_def=frozen_graph,
-                logdir=os.path.join(output_dir, '1'),
+                logdir=os.path.join(output_dir, model_name, MODEL_VERSION_DIR_NAME),
                 name='model.graphdef',
                 as_text=False)
+    # write config, setting only one output
+    _write_config_file(output_dir, model_name, model.inputs, [model.outputs[0]])
+
+
+def _write_config_file(output_dir, model_name, inputs, outputs):
+    """
+    Write model configuration file.
+    
+    See
+    https://docs.nvidia.com/deeplearning/sdk/tensorrt-inference-server-guide/docs/model_configuration.html
+
+    Parameters
+    ----------
+    output_dir : str or `os.path`
+        Directory of the the exported model.
+    model_name : str
+        Name of the model
+    inputs : List of `tf.Tensor`
+        Model inputs.
+    outputs: List of `tf.Tensor`
+        Model outputs.
+
+    """
+    config_str = 'name: "{}"\n' \
+                 'platform: "tensorflow_graphdef"\n' \
+                 'max_batch_size: {}\n' \
+                 'input [\n'.format(model_name, MAX_BATCH_SIZE)
+
+    def get_tensors_str_list(tensors, dims):
+        tensors_str_list = []
+        for tensor, dim in zip(tensors, dims):
+            name = tensor.op.name
+            data_type = DATA_TYPES_MAP[tensor.dtype]
+            dims = ' '.join([str(dim.value) for dim in tensor.shape[1:]])
+
+            tensors_str_list.append('  {{\n'
+                                    '    name: "{}"\n'
+                                    '    data_type: {}\n'
+                                    '    dims: [ {} ]\n'
+                                    '\n  }}'.format(name, data_type, dims))
+        return tensors_str_list
+
+    config_str += ','.join(get_tensors_str_list(inputs))
+    config_str += '\n]\n' \
+                  'output [\n'
+    config_str += ','.join(get_tensors_str_list(outputs))
+    config_str += '\n]\n'
+
+    # write to file
+    config_file_path = os.path.join(output_dir, model_name, CONFIG_FILE_NAME)
+    with open(config_file_path, 'w') as f_out:
+        f_out.write(config_str)
 
 
 if __name__ == '__main__':
