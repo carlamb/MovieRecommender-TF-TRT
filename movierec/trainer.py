@@ -9,8 +9,8 @@ DEFAULT_PARAMS = {
     # model:
     # "num_users": obtained from data generator,
     # "num_items": obtained from data generator,
-    "layers_sizes": [10, 10],
-    "layers_l2reg": [0.01, 0.01],
+    "layers_sizes": [64, 32, 16, 8],
+    "layers_l2reg": [0, 0, 0, 0],
 
     # training:
     "optimizer": "adam",
@@ -18,12 +18,12 @@ DEFAULT_PARAMS = {
     "beta_1": 0.9,
     "beta_2": 0.999,
 
-    "batch_size": 300,
-    "batch_size_eval": 300,
-    "num_negs_per_pos": 5,
-    "num_negs_per_pos_eval": 5,
-    "k": 3,
-    "epochs": 10,
+    "batch_size": 100,
+    "batch_size_eval": 200,
+    "num_negs_per_pos": 9,
+    "num_negs_per_pos_eval": 99,
+    "k": 5,
+    "epochs": 20,
 }
 
 

@@ -321,7 +321,7 @@ class MovierecModel(object):
         """
         # Callbacks
         callbacks = [
-            EarlyStopping(monitor=METRIC_VAL_DCG, mode='max', restore_best_weights=True, patience=3,
+            EarlyStopping(monitor=METRIC_VAL_DCG, mode='max', restore_best_weights=True, patience=5,
                           verbose=self.verbose),
             ModelCheckpoint(self._output_model_checkpoints, monitor=METRIC_VAL_DCG, save_best_only=True,
                             save_weights_only=False, mode='max', verbose=self.verbose)
