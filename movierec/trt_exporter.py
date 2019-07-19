@@ -67,11 +67,13 @@ def export_keras_model_to_trt(input_dir, model_name, output_dir):
                 input_graph_def=frozen_graph,
                 output_node_names=[out.op.name for out in model.outputs])
             # dir structure and name as expected by TensorRT
+            output_file_path = os.path.join(output_dir, model_name, MODEL_VERSION_DIR_NAME)
             graph_io.write_graph(
                 graph_or_graph_def=frozen_graph,
-                logdir=os.path.join(output_dir, model_name, MODEL_VERSION_DIR_NAME),
+                logdir=output_file_path,
                 name='model.graphdef',
                 as_text=False)
+    logging.info("Saved graph def file to {}".format(output_file_path))
     # write config, setting only one output
     _write_config_file(output_dir, model_name, model.inputs, [model.outputs[0]])
 
@@ -79,7 +81,7 @@ def export_keras_model_to_trt(input_dir, model_name, output_dir):
 def _write_config_file(output_dir, model_name, inputs, outputs):
     """
     Write model configuration file.
-    
+
     See
     https://docs.nvidia.com/deeplearning/sdk/tensorrt-inference-server-guide/docs/model_configuration.html
 
@@ -100,9 +102,9 @@ def _write_config_file(output_dir, model_name, inputs, outputs):
                  'max_batch_size: {}\n' \
                  'input [\n'.format(model_name, MAX_BATCH_SIZE)
 
-    def get_tensors_str_list(tensors, dims):
+    def get_tensors_str_list(tensors):
         tensors_str_list = []
-        for tensor, dim in zip(tensors, dims):
+        for tensor in tensors:
             name = tensor.op.name
             data_type = DATA_TYPES_MAP[tensor.dtype]
             dims = ' '.join([str(dim.value) for dim in tensor.shape[1:]])
@@ -124,6 +126,7 @@ def _write_config_file(output_dir, model_name, inputs, outputs):
     config_file_path = os.path.join(output_dir, model_name, CONFIG_FILE_NAME)
     with open(config_file_path, 'w') as f_out:
         f_out.write(config_str)
+    logging.info("Saved config file to {}".format(config_file_path))
 
 
 if __name__ == '__main__':
@@ -136,6 +139,9 @@ if __name__ == '__main__':
                         help='Input model directory (absolute or relative path)')
     parser.add_argument('-o', '--output-dir', type=str, required=True,
                         help='Output directory (absolute or relative path)')
+    parser.add_argument('-l', '--log-level', type=str, default='INFO',
+                        help='Log level (default: INFO).')
     args = parser.parse_args()
+    logging.getLogger().setLevel(logging.getLevelName(args.log_level))
 
     export_keras_model_to_trt(args.input_model_dir, args.model_name, args.output_dir)
