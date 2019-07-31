@@ -26,7 +26,7 @@ def call_predict(model_name, model_version, url, data_dir, dataset_name, verbose
     print("Done.\n\nMovierec: provide movie recommendations to users based on their watch history.\n"
           "This script queries a model running in TensorRT Inference Server and prints recommendations.\n"
           "The inference request sent to the model is done with a random set of movies, and the top {} "
-          "are selected. Recommendations will be different every attempt.\n")
+          "are selected. Recommendations will be different every attempt.\n".format(K))
     while True:
         user_id = input("Enter movielens user ID (integer between 0 and {}) or 'exit' to exit... ".format(ml.NUM_USERS[dataset_name] - 1))
         if user_id.strip() == 'exit':
